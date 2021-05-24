@@ -1,0 +1,10 @@
+R=2
+M=8
+Q = t(matrix(c(0.7,0.3,0.2,0.8),2,2)) (0.7,0.8 on diag)
+Emissions: Normal
+mu = c(-2,2) sig2 = c(0.5,0.5)
+N = 5000
+b = 5000
+I = 50000
+Bin link = inv.logit
+Thin parameter = 20

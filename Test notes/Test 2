@@ -1,0 +1,15 @@
+Different N=500,1000,5000,10 000 (look for sqrt(n) conv)
+Multiple sims for each
+Running on server (ask Pierre, Habib, CDT)
+means (-1,1) with variance 1
+M ~ 2k, 4k, 8k, 16k
+Different k (k=2,5)
+
+R=2 states
+
+9 of each of the 4 sample sizes N <- c(rep(500,9),rep(1000,9),rep(5000,9),rep(10000,9))
+M <- rep(c(4,4,4,8,8,8,16,16,16),4) #(each one has 3 experiments on 3 bin sizes)
+mu <- rep( c(-1,1) , 36 )
+sig2 <- rep( 1 , 72 )
+b <- rep( 0 , 36 )
+I <- rep(30000 , 36)
