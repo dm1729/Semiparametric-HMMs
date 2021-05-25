@@ -19,6 +19,7 @@ for (e in c(1:E) ){
 return(list("Inputs"=ListInputs,"Data"=ListData,"Outputs"=ListOutputs))
 }
 
+
 HmmMCMC2 <- function(M,N,D,mu,sig2,I){ #D distinct data sets, N number of obs. No burn in. Uniform prior.
   R = 2 #states
   Q <- t(matrix(c(0.7,0.3,0.2,0.8),2,2))
@@ -48,6 +49,16 @@ HmmMCMC2 <- function(M,N,D,mu,sig2,I){ #D distinct data sets, N number of obs. N
   }
   return(list("Inputs"=ListInputs,"Data"=ListData,"Outputs"=ListOutputs))
 }
+
+UnstoreLatent <- function(Data){
+  L <- length(Data$Outputs)
+  for (E in c(1:L) ){
+    Data$Outputs[[E]]$XList <- NULL
+  }
+  return(Data)
+}
+  
+
 
 MCMCPlots <- function(Data,b,s){ #Data frame e.g. ExperimentsN500 , N1000 etc. b burn in vector
   L <- length(Data$Outputs)
