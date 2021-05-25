@@ -15,7 +15,7 @@ for (e in c(1:E) ){
   X0 <- ListData[[e]]$states
   YBin <- factor( Bin(Y,M[e],Link) , c(1:M[e]) )
   ListOutputs[[e]] <- QWPosterior( YBin,R,M[e],b[e],I[e] ) #Gives simulated Q, W, states and loglikelihoods
-}
+} #can change last line to use QWPosteriorNoLatent if memory issues
 return(list("Inputs"=ListInputs,"Data"=ListData,"Outputs"=ListOutputs))
 }
 
