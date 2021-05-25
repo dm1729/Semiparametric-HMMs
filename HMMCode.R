@@ -116,7 +116,7 @@ QWPosterior <- function(Y,R,M,b,I,Adir=1,Bdir=1,X=NULL){ # Y data R states M bin
   return(list("QList"=LQ,"WList"=LW,"XList"=LX,"LLHList"=LLLH))
 }
 
-QWPosteriorNoLatent <- function(Y,R,M,b,I,Adir=1,Bdir=1,X=NULL){ # Y data R states M bins b burn-in I iterations this code will not output latent states
+QWPosteriorNoLatent <- function(Y,R,M,b=0,I,Adir=1,Bdir=1,X=NULL){ # Y data R states M bins b burn-in I iterations this code will not output latent states
   #Initilisation of Prior
   C <- priorset(R,M,rep(Adir,R),rep(Bdir,M) ) #Adir, Bdir prior precision
   A <- C[[1]] #Initial Q Dirichlet weights
@@ -231,6 +231,48 @@ LabelSwap <- function(QList,WList,Y,s,A=NULL,B=NULL){#Thins by factor s, swaps l
   } #End loop over S, so now all elements of QThin are entered with appropriate permutation
   return(list("QThin"=QThin,"WThin"=WThin))
 }
+
+LabelSwapTruth <- function(QList,WList,Q,W,s,A=NULL,B=NULL){#Thins by factor s, swaps labels
+  R <- dim(QList[[1]])[1] #Recovers number of hidden states
+  M <- dim(WList[[1]])[2] #Recoves number of bins
+  if ( is.null(A) ){
+    A <- priorset(R,M)[[1]]
+  }
+  if ( is.null(B) ){
+    B <- priorset(R,M)[[2]]
+  }
+  S <- length(QList)/s #s must divide length(QList)
+  QThin <- vector("list",S) #Thinned list, will place permuted Q in
+  WThin <- vector("list",S) #Thinned list
+  PivotQ <- Q
+  PivotW <- W
+  Perms <- permutations(R,R) #Matrix of permutations
+  for (i in c(1:S)){
+    D <- rep(0,dim(Perms)[1]) #Holds distances for each i to choose best one
+    Q <- QList[[s*(i-1)+1]] #Initialise
+    W <- WList[[s*(i-1)+1]]
+    for (j in c( 1:dim(Perms)[1] ) ){#perms from gtools
+      for (k in c(1:R)){
+        W[k,] <- WList[[s*(i-1)+1]][Perms[j,k],] #Permute each vector of W[[i]]
+        for (l in c(1:R)){
+          Q[k,l] <- QList[[s*(i-1)+1]][ Perms[j,k] , Perms[j,l] ] #Permute Q[[i]] accoridng to perm j
+        }
+      } #End loop over matrix entries for particular perm
+      D[j] <- Distance(c(Q,W),c(PivotQ,PivotW)) # Finds distance between Q,W(Q[[i], applied perm j) and Q,W(pivot)
+    } #End loop over particular perm: Next apply best perm
+    PermIndex <- which(D==min(D)) #Tells us which permutation was optimal for this Q
+    WThin[[i]] <- matrix(0, nrow = R, ncol = M) #Create matrix of correct size in list
+    QThin[[i]] <- matrix(0, nrow=R, ncol=R) # As above
+    for (k in c(1:R)){ #Now we set entry of the list of outputs according to this perm
+      WThin[[i]][k,] <- WList[[s*(i-1)+1]][Perms[PermIndex,k],] #Permute each vector of W[[i]]
+      for (l in c(1:R)){
+        QThin[[i]][k,l] <- QList[[s*(i-1)+1]][ Perms[PermIndex,k] , Perms[PermIndex,l] ] #Permute Q[[i]] accoridng to perm j
+      }
+    } #End loop over matrix entries
+  } #End loop over S, so now all elements of QThin are entered with appropriate permutation
+  return(list("QThin"=QThin,"WThin"=WThin))
+}
+
 
 LabelSwapLLH <- function(QList,WList,LLHList,s,A=NULL,B=NULL){#Thins by factor s, swaps labels
   R <- dim(QList[[1]])[1] #Recovers number of hidden states

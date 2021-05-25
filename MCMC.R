@@ -8,15 +8,45 @@ ListOutputs <- vector("list",E)
 for (e in c(1:E) ){
   means <- mu[(R*e-1):(R*e)]
   vars <- sig2[(R*e-1):(R*e)]
-  Link <- MyLinkAB( min(means) - 2*sig2 [ which(means==min(means))[1] ] , max(means) + 2*sig2[ which( means==max(means) )[1] ] )
+  Link <- MyLinkAB( min(means) - 2*sqrt(sig2 [ which(means==min(means))[1] ] ) , max(means) + 2*sqrt( sig2[ which( means==max(means) )[1] ] ) )
   ListInputs[[e]] <- list("means"=means,"vars"=vars, "SampleSize" = N[e], "Link"=Link, "BinCount"=M[e], "BurnIn" = b[e], "Iterations" = I[e])
   ListData[[e]] <- SimulateHMMNorm( Q,means,vars,N[e] )
   Y <- ListData[[e]]$obs
-  X0 <- ListData[[e]]$states
+  #X0 <- ListData[[e]]$states #Commented because can't see why this needs to be there.
   YBin <- factor( Bin(Y,M[e],Link) , c(1:M[e]) )
   ListOutputs[[e]] <- QWPosterior( YBin,R,M[e],b[e],I[e] ) #Gives simulated Q, W, states and loglikelihoods
 } #can change last line to use QWPosteriorNoLatent if memory issues
 return(list("Inputs"=ListInputs,"Data"=ListData,"Outputs"=ListOutputs))
+}
+
+HmmMCMC2 <- function(M,N,D,mu,sig2,I){ #D distinct data sets, N number of obs. No burn in. Uniform prior.
+  R = 2 #states
+  Q <- t(matrix(c(0.7,0.3,0.2,0.8),2,2))
+  B <- length(M) #How many different bin sizes
+  S <- length(N) #How many different sample sizes
+  E <- S*B*D
+  ListInputs <- vector("list",E)
+  ListData <- vector("list",E)
+  ListOutputs <- vector("list",E)
+  e <- 1 #Initialise
+  for (d in c(1:D) ){
+    means <- mu[(R*d-1):(R*d)]
+    vars <- sig2[(R*d-1):(R*d)]
+    Link <- MyLinkAB( min(means) - 2*sqrt(sig2 [ which(means==min(means))[1] ] ) , max(means) + 2*sqrt( sig2[ which( means==max(means) )[1] ] ) )
+    Sims <- SimulateHMMNorm( Q,means,vars,max(N) ) #Simulates a full data set for the highest N value
+    Y <- Sims$obs
+    X0 <- Sims$states
+    for (j in c(1:S)){
+      for (i in c(1:B)){
+        ListInputs[[e]] <- list("means"=means,"vars"=vars, "Link"=Link, "SampleSize" = N[j], "BinCount"=M[i], "Iterations" = I)
+        ListData[[e]] <- list("obs"=Y[1:N[j]],"states"=X0[1:N[j]]) #Observations and states for this experiment
+        YBin <- factor( Bin(Y[1:N[j]],M[i],Link) , c(1:M[i]) ) #Bins first N[j] observations into M[i] bins
+        ListOutputs[[e]] <- QWPosteriorNoLatent( YBin,R,M[i],0,I) #Gives simulated Q, W, states and loglikelihoods
+        e <- e+1 #Move to next entry of lists for following iteration of loop.
+      }
+    }
+  }
+  return(list("Inputs"=ListInputs,"Data"=ListData,"Outputs"=ListOutputs))
 }
 
 MCMCPlots <- function(Data,b,s){ #Data frame e.g. ExperimentsN500 , N1000 etc. b burn in vector
