@@ -18,3 +18,34 @@ for (e in c(1:E) ){
 }
 return(list("Inputs"=ListInputs,"Data"=ListData,"Outputs"=ListOutputs))
 }
+
+MCMCPlots <- function(Data,b,s){ #Data frame e.g. ExperimentsN500 , N1000 etc. b burn in vector
+  L <- length(Data$Outputs)
+  b <- rep(b,L/length(b))
+  ExperimentsQThin <- vector("list",L)
+  M <- vector("list",L)
+  V <- vector("list",L)
+  SD <- vector("list",L)
+  par(mfrow=c(2,3))
+  for (E in c(1:L) ){
+    QList <- Data$Outputs[[E]]$QList
+    WList <- Data$Outputs[[E]]$WList
+    LLHList <- Data$Outputs[[E]]$LLHList
+    QList <- QList[(b[E]+1):30000]
+    WList <- WList[(b[E]+1):30000]
+    LLHList <- LLHList[(b[E]+1):30000]
+    ExperimentsQThin[[E]] <- LabelSwapLLH(QList,WList,LLHList,s)$QThin
+    hist(EntryDraws(ExperimentsQThin[[E]],1,1),breaks=seq(0,1,0.0125),main = paste("Posterior MCMC for Diagonal 1, in Experiment #",E,"of 9,N=",Data$Inputs[[E]]$SampleSize),xlab = "Q(1,1)")
+    hist(EntryDraws(ExperimentsQThin[[E]],2,2),breaks=seq(0,1,0.0125),main = paste("Posterior MCMC for Diagonal 2, in Experiment #",E,"of 9,N=",Data$Inputs[[E]]$SampleSize),xlab = "Q(2,2)")
+    R <- nrow(QList[[1]])
+    M[[E]] <- PostMean(ExperimentsQThin[[E]])
+    V[[E]] <- matrix(0,R,R)
+    for (i in c(1:R)){
+      for (j in c(1:R) ){
+        V[[E]][i,j] <- var( EntryDraws( ExperimentsQThin[[E]],i,j ) )
+      }
+    }
+    SD[[E]] = sqrt(V[[E]])
+  }
+  return(list("QThin"=ExperimentsQThin,"PostMean"=M,"PostVariance"=V, "PostSD"=SD))
+}

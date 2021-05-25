@@ -200,6 +200,53 @@ LabelSwap <- function(QList,WList,Y,s,A=NULL,B=NULL){#Thins by factor s, swaps l
   return(list("QThin"=QThin,"WThin"=WThin))
 }
 
+LabelSwapLLH <- function(QList,WList,LLHList,s,A=NULL,B=NULL){#Thins by factor s, swaps labels
+  R <- dim(QList[[1]])[1] #Recovers number of hidden states
+  M <- dim(WList[[1]])[2] #Recoves number of bins
+  if ( is.null(A) ){
+    A <- priorset(R,M)[[1]]
+  }
+  if ( is.null(B) ){
+    B <- priorset(R,M)[[2]]
+  }
+  S <- length(QList)/s #s must divide length(QList)
+  QThin <- vector("list",S) #Thinned list, will place permuted Q in
+  WThin <- vector("list",S) #Thinned list
+  PostDensity <- rep(0,S)
+  for (i in c(1:S) ){ #Finds the  posterior mode
+    Prior <- sum((A-1)*log(QList[[s*(i-1)+1]])) + sum((B-1)*log(WList[[s*(i-1)+1]])) #Sets Prior prob up to const(A,B)
+    PostDensity[i] <- LLHList[[s*(i-1)+1]] + Prior
+  }
+  PivotIndex <- which(PostDensity==max(PostDensity))[1] #Finds argmax of posterior
+  PivotQ <- QList[[PivotIndex]]
+  PivotW <- WList[[PivotIndex]]
+  Perms <- permutations(R,R) #Matrix of permutations
+  for (i in c(1:S)){
+    D <- rep(0,dim(Perms)[1]) #Holds distances for each i to choose best one
+    Q <- QList[[s*(i-1)+1]] #Initialise
+    W <- WList[[s*(i-1)+1]]
+    for (j in c( 1:dim(Perms)[1] ) ){#perms from gtools
+      for (k in c(1:R)){
+        W[k,] <- WList[[s*(i-1)+1]][Perms[j,k],] #Permute each vector of W[[i]]
+        for (l in c(1:R)){
+          Q[k,l] <- QList[[s*(i-1)+1]][ Perms[j,k] , Perms[j,l] ] #Permute Q[[i]] accoridng to perm j
+        }
+      } #End loop over matrix entries for particular perm
+      D[j] <- Distance(c(Q,W),c(PivotQ,PivotW)) # Finds distance between Q,W(Q[[i], applied perm j) and Q,W(pivot)
+    } #End loop over particular perm: Next apply best perm
+    PermIndex <- which(D==min(D)) #Tells us which permutation was optimal for this Q
+    WThin[[i]] <- matrix(0, nrow = R, ncol = M) #Create matrix of correct size in list
+    QThin[[i]] <- matrix(0, nrow=R, ncol=R) # As above
+    for (k in c(1:R)){ #Now we set entry of the list of outputs according to this perm
+      WThin[[i]][k,] <- WList[[s*(i-1)+1]][Perms[PermIndex,k],] #Permute each vector of W[[i]]
+      for (l in c(1:R)){
+        QThin[[i]][k,l] <- QList[[s*(i-1)+1]][ Perms[PermIndex,k] , Perms[PermIndex,l] ] #Permute Q[[i]] accoridng to perm j
+      }
+    } #End loop over matrix entries
+  } #End loop over S, so now all elements of QThin are entered with appropriate permutation
+  return(list("QThin"=QThin,"WThin"=WThin))
+}
+
 #LogPriorProb <- function(Q,W,A,B){ #Input transition matrix and weights, output log dirichlet density
   #*UP TO CONSTANTS DEPENDING ON A,B SINCE A,B ARE FIXED IN MAXIMISATION STEP*
   #P <- sum((A-1)*log(Q)) + sum((B-1)*log(W))
@@ -286,3 +333,36 @@ MyLinkAB <- function(A,B){
 #for t=1 we would be conditioning on X_0, need to do different approach here
 
 #}
+
+EmissionPosterior <- function(Y,R,M,b,I,Adir=1,Bdir=1,X=NULL){ # Y data R states M bins b burn-in I iterations
+  #Initilisation of Prior
+  C <- priorset(R,M,rep(Adir,R),rep(Bdir,M) ) #Adir, Bdir prior precision
+  A <- C[[1]] #Initial Q Dirichlet weights
+  B <- C[[2]] #Initial W Dirichlet weights
+  #library(rje)
+  #library(RHmm)
+  #Initialisation on X
+  n <- length(Y)
+  if (is.null(X)){
+    X <- c(t(rmultinom(n,1,rep(1,R)))%*%c(1:R)) #Initial state vector, drawn randomly
+  }
+  #Initialisation on Q,W not even required?
+  for (i in c(1:b) ){ #Burn in phase (to get good initialisation on X, others don't matter?)
+    Q <- QGibbs(X,A) #Draw Q from conditional dist (update dirichlet weights)
+    W <- WGibbs(X,Y,B) #Same as Q but with relevant weight update
+    X <- XSample(Y,Q,W)$X #Sample states X given Q,W,Y using Forward/Backward
+  }
+  LQ <- vector("list",I) #Gets a list ready to store the draws from Q, L[[i]] is draw i of Q
+  LW <- vector("list",I)
+  LLLH <- vector("list",I) #for storing log likelihood
+  LX <- vector("list",I+1)
+  LX[[1]] <- X
+  for (i in c(1:I)){ #Here we will store draws on Q and W
+    LQ[[i]] <- QGibbs(LX[[i]],A)
+    LW[[i]] <- WGibbs(LX[[i]],Y,B)
+    SamplesLLH <- XSample( Y,LQ[[i]],LW[[i]] ) #also computes log likelihood for Q[i] and W[i]
+    LLLH[[i]] <- SamplesLLH$LLH
+    LX[[i+1]] <- SamplesLLH$X
+  }
+  return(list("QList"=LQ,"WList"=LW,"XList"=LX,"LLHList"=LLLH))
+}
