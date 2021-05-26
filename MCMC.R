@@ -50,6 +50,8 @@ HmmMCMC2 <- function(M,N,D,mu,sig2,I){ #D distinct data sets, N number of obs. N
   return(list("Inputs"=ListInputs,"Data"=ListData,"Outputs"=ListOutputs))
 }
 
+
+
 UnstoreLatent <- function(Data){
   L <- length(Data$Outputs)
   for (E in c(1:L) ){
@@ -76,8 +78,8 @@ MCMCPlots <- function(Data,b,s){ #Data frame e.g. ExperimentsN500 , N1000 etc. b
     WList <- WList[(b[E]+1):30000]
     LLHList <- LLHList[(b[E]+1):30000]
     ExperimentsQThin[[E]] <- LabelSwapLLH(QList,WList,LLHList,s)$QThin
-    hist(EntryDraws(ExperimentsQThin[[E]],1,1),breaks=seq(0,1,0.0125),main = paste("Posterior MCMC for Diagonal 1, in Experiment #",E,"of 9,N=",Data$Inputs[[E]]$SampleSize),xlab = "Q(1,1)")
-    hist(EntryDraws(ExperimentsQThin[[E]],2,2),breaks=seq(0,1,0.0125),main = paste("Posterior MCMC for Diagonal 2, in Experiment #",E,"of 9,N=",Data$Inputs[[E]]$SampleSize),xlab = "Q(2,2)")
+    hist(EntryDraws(ExperimentsQThin[[E]],1,1),breaks=seq(0,1,0.0125),main = paste("Q11 Histogram in Experiment #",E,"of", L,"N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(1,1)")
+    hist(EntryDraws(ExperimentsQThin[[E]],2,2),breaks=seq(0,1,0.0125),main = paste("Q22 Histogram in Experiment #",E,"of", L,"N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(2,2)")
     R <- nrow(QList[[1]])
     M[[E]] <- PostMean(ExperimentsQThin[[E]])
     V[[E]] <- matrix(0,R,R)
