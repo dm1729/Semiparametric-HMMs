@@ -62,14 +62,17 @@ UnstoreLatent <- function(Data){
   
 
 
-MCMCPlots <- function(Data,b,s){ #Data frame e.g. ExperimentsN500 , N1000 etc. b burn in vector
+MCMCPlots <- function(Data,b,s,Q=NULL){ #Data frame e.g. ExperimentsN500 , N1000 etc. b burn in vector. Q true
   L <- length(Data$Outputs)
+  if (is.null(Q)){
+    Q <- 0*Data$Outputs[[L]]$QList[[1]] #Gives 0 matrix of correct size
+  }
   b <- rep(b,L/length(b))
   ExperimentsQThin <- vector("list",L)
   M <- vector("list",L)
   V <- vector("list",L)
   SD <- vector("list",L)
-  par(mfrow=c(2,3))
+  par(mfrow=c(2,5))
   for (E in c(1:L) ){
     QList <- Data$Outputs[[E]]$QList
     WList <- Data$Outputs[[E]]$WList
@@ -78,8 +81,6 @@ MCMCPlots <- function(Data,b,s){ #Data frame e.g. ExperimentsN500 , N1000 etc. b
     WList <- WList[(b[E]+1):30000]
     LLHList <- LLHList[(b[E]+1):30000]
     ExperimentsQThin[[E]] <- LabelSwapLLH(QList,WList,LLHList,s)$QThin
-    hist(EntryDraws(ExperimentsQThin[[E]],1,1),breaks=seq(0,1,0.0125),main = paste("Q11 Histogram in Experiment #",E,"of", L,"N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(1,1)")
-    hist(EntryDraws(ExperimentsQThin[[E]],2,2),breaks=seq(0,1,0.0125),main = paste("Q22 Histogram in Experiment #",E,"of", L,"N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(2,2)")
     R <- nrow(QList[[1]])
     M[[E]] <- PostMean(ExperimentsQThin[[E]])
     V[[E]] <- matrix(0,R,R)
@@ -89,6 +90,33 @@ MCMCPlots <- function(Data,b,s){ #Data frame e.g. ExperimentsN500 , N1000 etc. b
       }
     }
     SD[[E]] = sqrt(V[[E]])
+    Perms <- permutations(R,R)
+    PermutedTrueQ <- Q
+    if (sum(Q)>0){ #Only do if the Q was not NULL
+    D <- rep(0,dim(Perms)[1]) #allocate
+    for (j in c(1:dim(Perms)[1]) ){
+      for (r in c(1:R)){
+        for (s in c(1:R)){
+          PermutedTrueQ[r,s] <- Q[Perms[j,r],Perms[j,s]] #permuting truth equivalent to permuting mean
+        }
+      }
+      D[j] <- Distance(M[[E]],PermutedTrueQ)
+    }
+    PermIndex <- which(D==min(D))[1]
+    for (r in c(1:R)){
+      for (s in c(1:R)){
+        PermutedTrueQ[r,s] <- Q[ Perms[PermIndex,r],Perms[PermIndex,s] ] #see which version of truth it fits best
+      }
+    }
+    }
+    #hist(EntryDraws(ExperimentsQThin[[E]],1,1),breaks=seq(0,1,0.0125),main = paste("Q11 Histogram in Experiment #",E,"of", L,"N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(1,1)")
+    hist(EntryDraws(ExperimentsQThin[[E]],1,1),breaks=seq(0,1,0.0125),main = paste("Q11 Histogram for N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(1,1)")
+    lines(c(M[[E]][1,1],M[[E]][1,1]),c(0,10000),col="blue")
+    lines(c(PermutedTrueQ[1,1],PermutedTrueQ[1,1]),c(0,10000),col="red")
+    #hist(EntryDraws(ExperimentsQThin[[E]],2,2),breaks=seq(0,1,0.0125),main = paste("Q22 Histogram in Experiment #",E,"of", L,"N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(2,2)")
+    hist(EntryDraws(ExperimentsQThin[[E]],2,2),breaks=seq(0,1,0.0125),main = paste("Q22 Histogram for N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(2,2)")
+    lines(c(M[[E]][2,2],M[[E]][2,2]),c(0,10000),col="blue")
+    lines(c(PermutedTrueQ[2,2],PermutedTrueQ[2,2]),c(0,10000),col="red")
   }
   return(list("QThin"=ExperimentsQThin,"PostMean"=M,"PostVariance"=V, "PostSD"=SD))
 }
