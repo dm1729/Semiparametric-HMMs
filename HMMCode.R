@@ -449,13 +449,13 @@ EmissionPosterior <- function(Y,R,b,I,Adir=1,Bdir=1,Mpois=exp(1),X=NULL){ # Y da
   return(list("QList"=LQ,"MList"=LM,"WList"=LW,"LLHList"=LLLH))
 }
 
-BinCountSample <- function(X,Y,R,Bdir,Link,Mpois=exp(1),TruncM=NULL){
+BinCountSample <- function(X,Y,R,Bdir,Link,Mpois=exp(1),TruncM=20){
   #First define function for use later
   if (is.null(TruncM) ){
     TruncM <- length(Y)
   }
-  mPost <- function(m){ #posterior proba *up to normalising constants*
-    PriorProb <- ( (exp(-Mpois)*Mpois^(m-R-1))/factorial(m-R-1) )*( m>=(R+1) )
+  mLogPost <- function(m){ #posterior proba *up to normalising constants*
+    LogPriorProb <- -Mpois+(m-R-1)*log(Mpois) - log(factorial(m-R-1))
     YBin <- factor( Bin(Y,m,Link) , c(1:m) )
     P <- matrix(0,R,m)
     for (i in c(1:R) ){
@@ -463,22 +463,22 @@ BinCountSample <- function(X,Y,R,Bdir,Link,Mpois=exp(1),TruncM=NULL){
         P[i,j]=(X==i)%*%(YBin==j) #adds one every time both X_t=i and YBin_t=j
       }
     }
-    Like <- prod(gamma(P+Bdir)/gamma(Bdir))*prod(gamma(Bdir*m )/gamma(rowSums(P) + Bdir*m )) #rowsums of P gives me total count for X_t=i
-    #*Major* concerns about overflow here.
-    return(PriorProb*Like)
+    LogLike1 <- sum( log( gamma(P+Bdir) )-log( gamma(Bdir) ) ) #Contribution from the double product
+    LogLike2 <- sum( log( gamma(Bdir*m ) ) -log( gamma(rowSums(P) + Bdir*m ) ) ) #rowsums of P gives me total count for X_t=i
+    return(LogPriorProb+LogLike1+LogLike2)
   }
   x <- rep(0,TruncM)
   for (i in c((R+1):TruncM)){
-    x[i] <- mPost(i)
+    x[i] <- mLogPost(i)
   }
-  M <- sample( c(1:TruncM) , 1 , prob = x )
-  return(M)
+  M <- sample( c((R+1):TruncM) , 1 , prob = exp(x)[(R+1):TruncM] )
+  return(list(M,x[(R+1):TruncM]))
 }
 
 BinCountMH <- function(X,Y,R,M,Bdir,Link,Mpois=exp(1)){
   #First define function for use later
-  mPost <- function(m){ #posterior proba *up to normalising constants*
-    PriorProb <- ( (exp(-Mpois)*Mpois^(m-R-1))/factorial(m-R-1) )*( m>=(R+1) )
+  mLogPost <- function(m){ #posterior proba *up to normalising constants*
+    LogPriorProb <- -Mpois+(m-R-1)*log(Mpois) - log(factorial(m-R-1))
     YBin <- factor( Bin(Y,m,Link) , c(1:m) )
     P <- matrix(0,R,m)
     for (i in c(1:R) ){
@@ -486,18 +486,19 @@ BinCountMH <- function(X,Y,R,M,Bdir,Link,Mpois=exp(1)){
         P[i,j]=(X==i)%*%(YBin==j) #adds one every time both X_t=i and YBin_t=j
       }
     }
-    Like1 <- prod(gamma(P+Bdir)/gamma(Bdir))
-    Like2 <- prod(gamma(Bdir*m )/gamma(rowSums(P) + Bdir*m )) #rowsums of P gives me total count for X_t=i
+    LogLike1 <- sum( log( gamma(P+Bdir) )-log( gamma(Bdir) ) ) #Contribution from the double product
+    LogLike2 <- sum( log( gamma(Bdir*m ) ) -log( gamma(rowSums(P) + Bdir*m ) ) ) #rowsums of P gives me total count for X_t=i
     #*Major* concerns about overflow here.
-    return(PriorProb*Like1*Like2)
+    return(LogPriorProb+LogLike1+LogLike2)
   }
   Mcand <- R+1+rpois(1,Mpois) #using q(x,y)=Pois(y) no idea what proposal to use!!
-  PoisOld <- ( ( exp(-Mpois)*Mpois^(M-R-1) )/factorial(M-R-1) )
-  PoisCand <- ( ( exp(-Mpois)*Mpois^(Mcand-R-1) )/factorial(Mcand-R-1) )
-  alpha <- min(1,(mPost(Mcand)*PoisOld)/(mPost(M)*PoisOld))
+  LogPoisOld <- -Mpois+(M-R-1)*log(Mpois) - log(factorial(M-R-1))
+  LogPoisCand <- -Mpois+(Mcand-R-1)*log(Mpois) - log(factorial(Mcand-R-1))
+  logalpha <- LogPoisOld-LogPoisCand+mLogPost(Mcand)-mLogPost(M)
+  alpha <- min(1,exp(logalpha))
   U <- runif(1)
-  if (U <= 1){
+  if (U <= alpha){
     M <- Mcand
   }
-  return(list(alpha,M,mPost(4)))
+  return(list(logalpha,M,mLogPost(4)))
 }
