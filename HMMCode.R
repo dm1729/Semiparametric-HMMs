@@ -455,7 +455,7 @@ BinCountSample <- function(X,Y,R,Bdir,Link,Mpois=exp(1),TruncM=20){
     TruncM <- length(Y)
   }
   mLogPost <- function(m){ #posterior proba *up to normalising constants*
-    LogPriorProb <- -Mpois+(m-R-1)*log(Mpois) - log(factorial(m-R-1))
+    LogPriorProb <- -Mpois+(m-R-1)*log(Mpois) - Lgamma(m-R) #last term for log (M-R-1)!
     YBin <- factor( Bin(Y,m,Link) , c(1:m) )
     P <- matrix(0,R,m)
     for (i in c(1:R) ){
@@ -463,21 +463,23 @@ BinCountSample <- function(X,Y,R,Bdir,Link,Mpois=exp(1),TruncM=20){
         P[i,j]=(X==i)%*%(YBin==j) #adds one every time both X_t=i and YBin_t=j
       }
     }
-    LogLike1 <- sum( log( gamma(P+Bdir) )-log( gamma(Bdir) ) ) #Contribution from the double product
-    LogLike2 <- sum( log( gamma(Bdir*m ) ) -log( gamma(rowSums(P) + Bdir*m ) ) ) #rowsums of P gives me total count for X_t=i
+    LogLike1 <- sum( Lgamma(P+Bdir)-Lgamma(Bdir) ) #Contribution from the double product
+    LogLike2 <- sum( Lgamma( Bdir*m )  - Lgamma( rowSums(P) + Bdir*m  ) ) #rowsums of P gives me total count for X_t=i
     return(LogPriorProb+LogLike1+LogLike2)
   }
   x <- rep(0,TruncM)
   for (i in c((R+1):TruncM)){
     x[i] <- mLogPost(i)
   }
+  x <- x-max(x[(R+1):TruncM]) #Rescales, doesn't affect sample but stops overflow with exp
   M <- sample( c((R+1):TruncM) , 1 , prob = exp(x)[(R+1):TruncM] )
   return(list(M,x[(R+1):TruncM]))
+  #return(list(x[(R+1):TruncM]))
 }
 
 BinCountMH <- function(X,Y,R,M,Bdir,Link,Mpois=exp(1)){
   #First define function for use later
-  mLogPost <- function(m){ #posterior proba *up to normalising constants*
+  mLogPost <- function(m){ #log posterior proba *up to normalising/log additive constants* #uses Rfast
     LogPriorProb <- -Mpois+(m-R-1)*log(Mpois) - log(factorial(m-R-1))
     YBin <- factor( Bin(Y,m,Link) , c(1:m) )
     P <- matrix(0,R,m)
@@ -486,9 +488,8 @@ BinCountMH <- function(X,Y,R,M,Bdir,Link,Mpois=exp(1)){
         P[i,j]=(X==i)%*%(YBin==j) #adds one every time both X_t=i and YBin_t=j
       }
     }
-    LogLike1 <- sum( log( gamma(P+Bdir) )-log( gamma(Bdir) ) ) #Contribution from the double product
-    LogLike2 <- sum( log( gamma(Bdir*m ) ) -log( gamma(rowSums(P) + Bdir*m ) ) ) #rowsums of P gives me total count for X_t=i
-    #*Major* concerns about overflow here.
+    LogLike1 <- sum( Lgamma(P+Bdir)-Lgamma(Bdir) ) #Contribution from the double product in likelihood
+    LogLike2 <- sum( Lgamma( Bdir*m )  - Lgamma( rowSums(P) + Bdir*m  ) ) #rowsums of P gives me total count for X_t=i
     return(LogPriorProb+LogLike1+LogLike2)
   }
   Mcand <- R+1+rpois(1,Mpois) #using q(x,y)=Pois(y) no idea what proposal to use!!
@@ -500,5 +501,5 @@ BinCountMH <- function(X,Y,R,M,Bdir,Link,Mpois=exp(1)){
   if (U <= alpha){
     M <- Mcand
   }
-  return(list(logalpha,M,mLogPost(4)))
+  return(list(logalpha,M))
 }
