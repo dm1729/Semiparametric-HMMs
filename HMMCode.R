@@ -147,7 +147,6 @@ QWPosteriorNoLatent <- function(Y,R,M,b=0,I,Adir=1,Bdir=1,X=NULL){ # Y data R st
   return(list("QList"=LQ,"WList"=LW,"LLHList"=LLLH))
 }
 
-
 QWPosteriorFixState <- function(Y,R,M,b,I,X=NULL){ # Y data R states M bins b burn-in I iterations
   #Initilisation of Prior
   A <- priorset(R,M)[[1]] #Initial Q Dirichlet weights, can be customized
@@ -273,7 +272,6 @@ LabelSwapTruth <- function(QList,WList,Q,W,s,A=NULL,B=NULL){#Thins by factor s, 
   return(list("QThin"=QThin,"WThin"=WThin))
 }
 
-
 LabelSwapLLH <- function(QList,WList,LLHList,s,A=NULL,B=NULL){#Thins by factor s, swaps labels
   R <- dim(QList[[1]])[1] #Recovers number of hidden states
   M <- dim(WList[[1]])[2] #Recoves number of bins
@@ -325,11 +323,6 @@ LabelSwapLLH <- function(QList,WList,LLHList,s,A=NULL,B=NULL){#Thins by factor s
   #*UP TO CONSTANTS DEPENDING ON A,B SINCE A,B ARE FIXED IN MAXIMISATION STEP*
   #P <- sum((A-1)*log(Q)) + sum((B-1)*log(W))
 #}
-
-Distance <- function(x,y){
-  D <- sqrt(sum((x-y)^2))
-  return(D)
-}
 
 PostMean <- function(QList){#Input MCMC sample list QList (or thinned list QThin)
   QMean <- Reduce("+",QList)/length(QList)
@@ -437,7 +430,37 @@ EmissionPosterior <- function(Y,R,QList,Bdir=1,Mpois=exp(1),X=NULL){ # Y data R 
   return(list("QList"=QList,"MList"=LM,"WList"=LW,"LLHList"=LLLH)) #(Also returns inputs Q to have on hand)
 }
 
-BinCountSample <- function(X,Y,R,Bdir,Link=NULL,Mpois=exp(1),TruncM=100){
+FullPi2 <- function(Y,R,I,Adir=1,Bdir=1,Mpois=exp(1),X=NULL){ # Y data in [0,1] R states M bins b burn-in I iterations QList Q draws
+  #Initilisation of Prior
+  A <- priorset(R,2,rep(Adir,R),rep(0,2) )[[1]] #Sets prior weights for Q
+  #library(gtools)
+  #library(RHmm)
+  #Initialisation on X
+  n <- length(Y)
+  if (is.null(X)){
+    X <- c(t(rmultinom(n,1,rep(1,R)))%*%c(1:R)) #Initial state vector, drawn randomly
+  }
+  #LinkA <- Y[order(Y)][floor(length(Y)/20)] #Takes roughly the 5% lower quantile
+  #LinkB <- Y[order(Y,decreasing = TRUE)][floor(length(Y)/20)] #Takes approx 5% upper quantile
+  #LinkY <- MyLink(Y,-3,3) #Transforms data (uses same link as used before) *input already transformed*
+  LQ <- vector("list",I) #for storing draws of Q
+  LM <- vector("list",I) #for storing selected number of bins
+  LW <- vector("list",I) #for storting selected weights. LW[[i]] is matrix of dim R x LM[[i]]
+  LLLH <- vector("list",I) #for storing log likelihood
+  for (i in c(1:I) ){
+    LQ[[i]] <- QGibbs(X,A) #Uses previous draw from Q. At this point, could enter "mini chain" loop
+    LM[[i]] <- BinCountSample(X,Y,R,Bdir,Link=NULL,Mpois) #Samples number of bins
+    B <- priorset(R,LM[[i]],rep(0,R),rep(Bdir,LM[[i]]) )[[2]] #Gets the prior matrix for that many bins
+    YBin <- factor( Bin(Y,LM[[i]]) , c(1:LM[[i]]) ) #Puts into count data for bins selected previously
+    LW[[i]] <- WGibbs(X,YBin,B) # Samples weights
+    SamplesLLH <- XSample( YBin,LQ[[i]],LW[[i]] ) #also computes log likelihood for Q[i] and W[i]
+    LLLH[[i]] <- SamplesLLH$LLH
+    X <- SamplesLLH$X
+  }
+  return(list("QList"=LQ,"MList"=LM,"WList"=LW,"LLHList"=LLLH)) #(Also returns inputs Q to have on hand)
+}
+
+BinCountSample <- function(X,Y,R,Bdir=1,Link=NULL,Mpois=exp(1),TruncM=30){#usual input Y in [0,1]
   #First define function for use later
   if (is.null(TruncM) ){
     TruncM <- length(Y)
@@ -448,7 +471,7 @@ BinCountSample <- function(X,Y,R,Bdir,Link=NULL,Mpois=exp(1),TruncM=100){
   }
   x <- rep(0,TruncM)
   for (i in c((R+1):TruncM)){
-    x[i] <- mLogPost(i,X,Y,R,Bdir)
+    x[i] <- mLogPost(i,X,Y,R,Bdir,Mpois)
   }
   x <- x-max(x[(R+1):TruncM]) #Rescales, doesn't affect sample but stops overflow with exp
   M <- sample( c((R+1):TruncM) , 1 , prob = exp(x)[(R+1):TruncM] )

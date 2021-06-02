@@ -19,7 +19,6 @@ for (e in c(1:E) ){
 return(list("Inputs"=ListInputs,"Data"=ListData,"Outputs"=ListOutputs))
 }
 
-
 HmmMCMC2 <- function(M,N,D,mu,sig2,I){ #D distinct data sets, N number of obs. No burn in. Uniform prior.
   R = 2 #states
   Q <- t(matrix(c(0.7,0.3,0.2,0.8),2,2))
@@ -50,8 +49,7 @@ HmmMCMC2 <- function(M,N,D,mu,sig2,I){ #D distinct data sets, N number of obs. N
   return(list("Inputs"=ListInputs,"Data"=ListData,"Outputs"=ListOutputs))
 }
 
-
-MCMCpi2 <- function(Data,b=500,s=10){ #Does the pi2 posterior for the MCMC draws
+MCMCEmission <- function(Data,b=500,s=10){ #Does the pi2 posterior for the MCMC draws
   R <- 2
   #L <- length(Data$Outputs)
   L <- 1
@@ -64,6 +62,17 @@ MCMCpi2 <- function(Data,b=500,s=10){ #Does the pi2 posterior for the MCMC draws
   return(A)
 }
 
+MCMCpi2 <- function(Data,I){ #Does the pi2 posterior for the MCMC draws (could make funct of Y)
+  R <- 2
+  #L <- length(Data$Outputs)
+  L <- 1
+  A <- vector("list",L)
+  for (l in c(1:L)){
+    Y <- Data$Inputs[[l]]$Link( Sims$Data[[l]]$obs ) #Transform data to [0,1] (using same link as before)
+    A[[l]] <- FullPi2(Y,R,I)
+  }
+  return(A)
+}
 
 UnstoreLatent <- function(Data){
   L <- length(Data$Outputs)
@@ -73,9 +82,7 @@ UnstoreLatent <- function(Data){
   return(Data)
 }
   
-
-
-MCMCPlots <- function(Data,b,s,Q=NULL){ #Data frame e.g. ExperimentsN500 , N1000 etc. b burn in vector. Q true
+MCMCPi1Plots <- function(Data,b,s,Q=NULL){ #Data frame e.g. ExperimentsN500 , N1000 etc. b burn in vector. Q true
   L <- length(Data$Outputs)
   if (is.null(Q)){
     Q <- 0*Data$Outputs[[L]]$QList[[1]] #Gives 0 matrix of correct size
