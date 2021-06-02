@@ -408,73 +408,68 @@ MyLinkAB <- function(A,B){
 
 #}
 
-EmissionPosterior <- function(Y,R,b,I,Adir=1,Bdir=1,Mpois=exp(1),X=NULL){ # Y data R states M bins b burn-in I iterations
+EmissionPosterior <- function(Y,R,QList,Bdir=1,Mpois=exp(1),X=NULL){ # Y data R states M bins b burn-in I iterations QList Q draws
   #Initilisation of Prior
-  M <- 2*R + rpois(1,Mpois)
-  C <- priorset(R,M,rep(Adir,R),rep(Bdir,M) ) #Adir, Bdir prior precision
-  A <- C[[1]] #Initial Q Dirichlet weights
-  B <- C[[2]] #Initial W Dirichlet weights
-  #library(rje)
+  I <- length(QList)
+  #library(gtools)
   #library(RHmm)
   #Initialisation on X
   n <- length(Y)
   if (is.null(X)){
     X <- c(t(rmultinom(n,1,rep(1,R)))%*%c(1:R)) #Initial state vector, drawn randomly
   }
-  LinkA <- Y[order(Y)][floor(length(Y)/20)] #Takes roughly the 5% lower quantile
-  LinkB <- Y[order(Y,decreasing = TRUE)][floor(length(Y)/20)] #Takes approx 5% upper quantile
-  Link <- MyLinkAB(LinkA,LinkB) #Link to use for binning
-  for (i in c(1:b) ){
-    Q <- QGibbs(X,A)
-    M <- BinCountSample(X,Y,R,Bdir,Link,Mpois) #Makes a MH proposal from previous M. Bdir to marginalise
-    B <- priorset(R,M,rep(Adir,R),rep(Bdir,M) )[[2]]
-    YBin <- factor( Bin(Y,M,Link) , c(1:M) ) #Puts into count data for bins selected previously
-    W <- WGibbs(X,YBin,B) 
-    X <- XSample(YBin,Q,W)$X
-  }
-  LQ <- vector("list",I) #Gets a list ready to store the draws from Q, L[[i]] is draw i of Q
-  LW <- vector("list",I)
-  LM <- vector("list",I)
+  #LinkA <- Y[order(Y)][floor(length(Y)/20)] #Takes roughly the 5% lower quantile
+  #LinkB <- Y[order(Y,decreasing = TRUE)][floor(length(Y)/20)] #Takes approx 5% upper quantile
+  #LinkY <- MyLink(Y,-3,3) #Transforms data (uses same link as used before) *input already transformed*
+  LM <- vector("list",I) #for storing selected number of bins
+  LW <- vector("list",I) #for storting selected weights. LW[[i]] is matrix of dim R x LM[[i]]
   LLLH <- vector("list",I) #for storing log likelihood
-  for (i in c(1:I)){ #Here we will store draws on Q and W
-    LQ[[i]] <- QGibbs(X,A)
-    LM[[i]] <- BinCountSample(X,Y,R,Bdir,Mpois,Link)
-    B <- priorset(R,M,rep(Adir,R),rep(Bdir,LM[[i]]) )[[2]]
-    YBin <- factor( Bin(Y,M,Link) , c(1:M) ) #Puts into count data for bins selected previously
-    LW[[i]] <- WGibbs(X,YBin,B)
-    SamplesLLH <- XSample( YBin,LQ[[i]],LW[[i]] ) #also computes log likelihood for Q[i] and W[i]
+  for (i in c(1:I) ){
+    Q <- QList[[i]] #Uses previous draw from Q. At this point, could enter "mini chain" loop
+    LM[[i]] <- BinCountSample(X,Y,R,Bdir,Link=NULL,Mpois) #Samples number of bins
+    B <- priorset(R,M,rep(0,R),rep(Bdir,M) )[[2]] #Gets the prior matrix for that many bins
+    YBin <- factor( Bin(Y,M) , c(1:M) ) #Puts into count data for bins selected previously
+    LW[[i]] <- WGibbs(X,YBin,B) # Samples weights
+    SamplesLLH <- XSample( YBin,Q,LW[[i]] ) #also computes log likelihood for Q[i] and W[i]
     LLLH[[i]] <- SamplesLLH$LLH
     X <- SamplesLLH$X
   }
-  return(list("QList"=LQ,"MList"=LM,"WList"=LW,"LLHList"=LLLH))
+  return(list("QList"=QList,"MList"=LM,"WList"=LW,"LLHList"=LLLH)) #(Also returns inputs Q to have on hand)
 }
 
-BinCountSample <- function(X,Y,R,Bdir,Link,Mpois=exp(1),TruncM=20){
+BinCountSample <- function(X,Y,R,Bdir,Link=NULL,Mpois=exp(1),TruncM=100){
   #First define function for use later
   if (is.null(TruncM) ){
     TruncM <- length(Y)
   }
-  mLogPost <- function(m){ #posterior proba *up to normalising constants*
-    LogPriorProb <- -Mpois+(m-R-1)*log(Mpois) - Lgamma(m-R) #last term for log (M-R-1)!
-    YBin <- factor( Bin(Y,m,Link) , c(1:m) )
-    P <- matrix(0,R,m)
-    for (i in c(1:R) ){
-      for (j in c(1:m) ){
-        P[i,j]=(X==i)%*%(YBin==j) #adds one every time both X_t=i and YBin_t=j
-      }
-    }
-    LogLike1 <- sum( Lgamma(P+Bdir)-Lgamma(Bdir) ) #Contribution from the double product
-    LogLike2 <- sum( Lgamma( Bdir*m )  - Lgamma( rowSums(P) + Bdir*m  ) ) #rowsums of P gives me total count for X_t=i
-    return(LogPriorProb+LogLike1+LogLike2)
+  
+  if ( is.null(Link)==FALSE ){ #(if not already transformed)
+    Y <- Link(Y)
   }
   x <- rep(0,TruncM)
   for (i in c((R+1):TruncM)){
-    x[i] <- mLogPost(i)
+    x[i] <- mLogPost(i,X,Y,R,Bdir)
   }
   x <- x-max(x[(R+1):TruncM]) #Rescales, doesn't affect sample but stops overflow with exp
   M <- sample( c((R+1):TruncM) , 1 , prob = exp(x)[(R+1):TruncM] )
-  return(list(M,x[(R+1):TruncM]))
+  #return(list(M,x[(R+1):TruncM]))
   #return(list(x[(R+1):TruncM]))
+  return(M)
+}
+
+mLogPost <- function(m,X,Y,R,Bdir,Mpois=exp(1)){ #posterior proba *up to normalising constants*
+  LogPriorProb <- -Mpois+(m-R-1)*log(Mpois) - lgamma(m-R) #last term for log (M-R-1)!
+  YBin <- factor( Bin(Y,m) , c(1:m) )
+  P <- matrix(0,R,m)
+  for (i in c(1:R) ){
+    for (j in c(1:m) ){
+      P[i,j]=(X==i)%*%(YBin==j) #adds one every time both X_t=i and YBin_t=j
+    }
+  }
+  LogLike1 <- sum( lgamma(P+Bdir)-lgamma(Bdir) ) #Contribution from the double product
+  LogLike2 <- sum( lgamma( Bdir*m )  - lgamma( rowSums(P) + Bdir*m  ) ) #rowsums of P gives me total count for X_t=i
+  LogLike3 <- length(X)*log(m)
+  return(LogPriorProb+LogLike1+LogLike2+LogLike3)
 }
 
 BinCountMH <- function(X,Y,R,M,Bdir,Link,Mpois=exp(1)){

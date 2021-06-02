@@ -51,6 +51,19 @@ HmmMCMC2 <- function(M,N,D,mu,sig2,I){ #D distinct data sets, N number of obs. N
 }
 
 
+MCMCpi2 <- function(Data,b=500,s=10){ #Does the pi2 posterior for the MCMC draws
+  R <- 2
+  #L <- length(Data$Outputs)
+  L <- 1
+  A <- vector("list",L)
+  for (l in c(1:L)){
+    Y <- Data$Inputs[[l]]$Link( Sims$Data[[l]]$obs ) #Transform data to [0,1] (using same link as before)
+    QList <- Data$Outputs[[l]]$QList[seq(b,length(Data$Outputs[[l]]$QList),s)] #Provides thinned list
+    A[[l]] <- EmissionPosterior(Y,R,QList)
+  }
+  return(A)
+}
+
 
 UnstoreLatent <- function(Data){
   L <- length(Data$Outputs)
