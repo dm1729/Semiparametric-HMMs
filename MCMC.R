@@ -82,7 +82,7 @@ UnstoreLatent <- function(Data){
   return(Data)
 }
   
-MCMCPi1Plots <- function(Data,b,s,Q=NULL){ #Data frame e.g. ExperimentsN500 , N1000 etc. b burn in vector. Q true
+MCMCPi1PlotsQ <- function(Data,b,s,Q=NULL){ #Data frame e.g. ExperimentsN500 , N1000 etc. b burn in vector. Q true
   L <- length(Data$Outputs)
   if (is.null(Q)){
     Q <- 0*Data$Outputs[[L]]$QList[[1]] #Gives 0 matrix of correct size
@@ -139,4 +139,287 @@ MCMCPi1Plots <- function(Data,b,s,Q=NULL){ #Data frame e.g. ExperimentsN500 , N1
     lines(c(PermutedTrueQ[2,2],PermutedTrueQ[2,2]),c(0,10000),col="red")
   }
   return(list("QThin"=ExperimentsQThin,"PostMean"=M,"PostVariance"=V, "PostSD"=SD))
+}
+
+MCMCPi1PlotsQW <- function(Data,b,s,Q=NULL){ #Data frame e.g. ExperimentsN500 , N1000 etc. b burn in vector. Q true
+  L <- length(Data$Outputs)
+  if (is.null(Q)){
+    Q <- 0*Data$Outputs[[L]]$QList[[1]] #Gives 0 matrix of correct size
+  }
+  b <- rep(b,L/length(b))
+  ExperimentsQThin <- vector("list",L)
+  ExperimentsWThin <- vector("list",L)
+  MQ <- vector("list",L)
+  VQ <- vector("list",L)
+  SDQ <- vector("list",L)
+  MW <- vector("list",L)
+  VW <- vector("list",L)
+  SDW <- vector("list",L)
+  par(mfrow=c(2,4))
+  for (E in c(1:L) ){
+    QList <- Data$Outputs[[E]]$QList
+    WList <- Data$Outputs[[E]]$WList
+    LLHList <- Data$Outputs[[E]]$LLHList
+    QList <- QList[(b[E]+1):30000]
+    WList <- WList[(b[E]+1):30000]
+    LLHList <- LLHList[(b[E]+1):30000]
+    ExperimentsQThin[[E]] <- LabelSwapLLH(QList,WList,LLHList,s)$QThin
+    ExperimentsWThin[[E]] <- LabelSwapLLH(QList,WList,LLHList,s)$WThin
+    R <- nrow(QList[[1]])
+    M <- ncol(WList[[1]])
+    MQ[[E]] <- PostMean(ExperimentsQThin[[E]])
+    VQ[[E]] <- matrix(0,R,R)
+    for (i in c(1:R)){
+      for (j in c(1:R) ){
+        VQ[[E]][i,j] <- var( EntryDraws( ExperimentsQThin[[E]],i,j ) )
+      }
+    }
+    SDQ[[E]] = sqrt(VQ[[E]])
+    
+    MW[[E]] <- PostMean(ExperimentsWThin[[E]])
+    #VW[[E]] <- matrix(0,R,M)
+    #for (i in c(1:R)){
+     # for (j in c(1:M) ){
+     #   VW[[E]][i,j] <- var( EntryDraws( ExperimentsWThin[[E]],i,j ) )
+    #  }
+    #}
+    #SDW[[E]] = sqrt(VW[[E]])
+    
+    Perms <- permutations(R,R)
+    PermutedTrueQ <- Q
+    if (sum(Q)>0){ #Only do if the Q was not NULL
+      D <- rep(0,dim(Perms)[1]) #allocate
+      for (j in c(1:dim(Perms)[1]) ){
+        for (r in c(1:R)){
+          for (s in c(1:R)){
+            PermutedTrueQ[r,s] <- Q[Perms[j,r],Perms[j,s]] #permuting truth equivalent to permuting mean
+          }
+        }
+        D[j] <- Distance(MQ[[E]],PermutedTrueQ) #SHOULD BRING IN DISTANCE FOR W ALSO
+      }
+      PermIndex <- which(D==min(D))[1]
+      for (r in c(1:R)){
+        for (s in c(1:R)){
+          PermutedTrueQ[r,s] <- Q[ Perms[PermIndex,r],Perms[PermIndex,s] ] #see which version of truth it fits best
+        }
+      }
+    }
+    #hist(EntryDraws(ExperimentsQThin[[E]],1,1),breaks=seq(0,1,0.0125),main = paste("Q11 Histogram in Experiment #",E,"of", L,"N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(1,1)")
+    hist(EntryDraws(ExperimentsQThin[[E]],1,1),breaks=seq(0,1,0.0125),main = paste("Q11 Histogram for N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(1,1)")
+    lines(c(MQ[[E]][1,1],MQ[[E]][1,1]),c(0,10000),col="blue")
+    lines(c(PermutedTrueQ[1,1],PermutedTrueQ[1,1]),c(0,10000),col="red")
+    #hist(EntryDraws(ExperimentsQThin[[E]],2,2),breaks=seq(0,1,0.0125),main = paste("Q22 Histogram in Experiment #",E,"of", L,"N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(2,2)")
+    hist(EntryDraws(ExperimentsQThin[[E]],2,2),breaks=seq(0,1,0.0125),main = paste("Q22 Histogram for N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(2,2)")
+    lines(c(MQ[[E]][2,2],MQ[[E]][2,2]),c(0,10000),col="blue")
+    lines(c(PermutedTrueQ[2,2],PermutedTrueQ[2,2]),c(0,10000),col="red")
+    Link <- Data$Inputs[[E]]$Link #Retrieves the link function
+    Line <- seq(-5,5,0.01) #Defines the line space
+    Hist <- WHist(MW[[E]][1,],Link)(Line) #Defines the (transformed) hist to be plotted
+    mu <- 2*(Perms[PermIndex,1]-1.5) #Decides which is the correct mu
+    plot( Line,(1/sqrt(2*pi))*exp(-(Line-mu)^2/2),"l",col="red",main = paste("Emission 1, with N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "x",ylab="Density True/PostMean" )
+    lines(Line,Hist,"l",col="blue")
+    Hist <- WHist(MW[[E]][2,],Link)(Line)
+    mu <- 2*(Perms[PermIndex,2]-1.5)
+    plot( Line,(1/sqrt(2*pi))*exp(-(Line-mu)^2/2) ,"l",col="red",main = paste("Emission 2, with N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "x",ylab="Density True/PostMean" )
+    lines(Line,Hist,"l",col="blue")
+    }
+  return( list("QThin"=ExperimentsQThin,"PostMeanQ"=MQ,"PostVarianceQ"=VQ, "PostSDQ"=SDQ,"WThin"=ExperimentsWThin,"PostMeanW"=MW,"PostVarianceW"=VW, "PostSDW"=SDW) )
+}
+
+MCMCPi1PlotsW <- function(Data,b,s,Q=NULL){ #Data frame e.g. ExperimentsN500 , N1000 etc. b burn in vector. Q true
+  L <- length(Data$Outputs)
+  if (is.null(Q)){
+    Q <- 0*Data$Outputs[[L]]$QList[[1]] #Gives 0 matrix of correct size
+  }
+  b <- rep(b,L/length(b))
+  ExperimentsQThin <- vector("list",L)
+  ExperimentsWThin <- vector("list",L)
+  MQ <- vector("list",L)
+  VQ <- vector("list",L)
+  SDQ <- vector("list",L)
+  MW <- vector("list",L)
+  VW <- vector("list",L)
+  SDW <- vector("list",L)
+  par(mfrow=c(1,2))
+  for (E in c(1:L) ){
+    QList <- Data$Outputs[[E]]$QList
+    WList <- Data$Outputs[[E]]$WList
+    LLHList <- Data$Outputs[[E]]$LLHList
+    QList <- QList[(b[E]+1):30000]
+    WList <- WList[(b[E]+1):30000]
+    LLHList <- LLHList[(b[E]+1):30000]
+    ExperimentsQThin[[E]] <- LabelSwapLLH(QList,WList,LLHList,s)$QThin
+    ExperimentsWThin[[E]] <- LabelSwapLLH(QList,WList,LLHList,s)$WThin
+    R <- nrow(QList[[1]])
+    M <- ncol(WList[[1]])
+    MQ[[E]] <- PostMean(ExperimentsQThin[[E]])
+    VQ[[E]] <- matrix(0,R,R)
+    for (i in c(1:R)){
+      for (j in c(1:R) ){
+        VQ[[E]][i,j] <- var( EntryDraws( ExperimentsQThin[[E]],i,j ) )
+      }
+    }
+    SDQ[[E]] = sqrt(VQ[[E]])
+    
+    MW[[E]] <- PostMean(ExperimentsWThin[[E]])
+    #VW[[E]] <- matrix(0,R,M)
+    #for (i in c(1:R)){
+    # for (j in c(1:M) ){
+    #   VW[[E]][i,j] <- var( EntryDraws( ExperimentsWThin[[E]],i,j ) )
+    #  }
+    #}
+    #SDW[[E]] = sqrt(VW[[E]])
+    
+    Perms <- permutations(R,R)
+    PermutedTrueQ <- Q
+    if (sum(Q)>0){ #Only do if the Q was not NULL
+      D <- rep(0,dim(Perms)[1]) #allocate
+      for (j in c(1:dim(Perms)[1]) ){
+        for (r in c(1:R)){
+          for (s in c(1:R)){
+            PermutedTrueQ[r,s] <- Q[Perms[j,r],Perms[j,s]] #permuting truth equivalent to permuting mean
+          }
+        }
+        D[j] <- Distance(MQ[[E]],PermutedTrueQ) #SHOULD BRING IN DISTANCE FOR W ALSO
+      }
+      PermIndex <- which(D==min(D))[1]
+      for (r in c(1:R)){
+        for (s in c(1:R)){
+          PermutedTrueQ[r,s] <- Q[ Perms[PermIndex,r],Perms[PermIndex,s] ] #see which version of truth it fits best
+        }
+      }
+    }
+    #hist(EntryDraws(ExperimentsQThin[[E]],1,1),breaks=seq(0,1,0.0125),main = paste("Q11 Histogram in Experiment #",E,"of", L,"N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(1,1)")
+    #hist(EntryDraws(ExperimentsQThin[[E]],1,1),breaks=seq(0,1,0.0125),main = paste("Q11 Histogram for N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(1,1)")
+    #lines(c(MQ[[E]][1,1],MQ[[E]][1,1]),c(0,10000),col="blue")
+    #lines(c(PermutedTrueQ[1,1],PermutedTrueQ[1,1]),c(0,10000),col="red")
+    #hist(EntryDraws(ExperimentsQThin[[E]],2,2),breaks=seq(0,1,0.0125),main = paste("Q22 Histogram in Experiment #",E,"of", L,"N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(2,2)")
+    #hist(EntryDraws(ExperimentsQThin[[E]],2,2),breaks=seq(0,1,0.0125),main = paste("Q22 Histogram for N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(2,2)")
+    #lines(c(MQ[[E]][2,2],MQ[[E]][2,2]),c(0,10000),col="blue")
+    #lines(c(PermutedTrueQ[2,2],PermutedTrueQ[2,2]),c(0,10000),col="red")
+    Link <- Data$Inputs[[E]]$Link #Retrieves the link function
+    Line <- seq(-5,5,0.01) #Defines the line space
+    Hist <- WHist(MW[[E]][1,],Link)(Line) #Defines the (transformed) hist to be plotted
+    mu <- 2*(Perms[PermIndex,1]-1.5) #Decides which is the correct mu
+    plot( Line,(1/sqrt(2*pi))*exp(-(Line-mu)^2/2),"l",col="red",main = paste("Emission 1, with N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "x",ylab="Density True/PostMean" )
+    lines(Line,Hist,"l",col="blue")
+    Hist <- WHist(MW[[E]][2,],Link)(Line)
+    mu <- 2*(Perms[PermIndex,2]-1.5)
+    plot( Line,(1/sqrt(2*pi))*exp(-(Line-mu)^2/2) ,"l",col="red",main = paste("Emission 2, with N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "x",ylab="Density True/PostMean" )
+    lines(Line,Hist,"l",col="blue")
+  }
+  return( list("QThin"=ExperimentsQThin,"PostMeanQ"=MQ,"PostVarianceQ"=VQ, "PostSDQ"=SDQ,"WThin"=ExperimentsWThin,"PostMeanW"=MW,"PostVarianceW"=VW, "PostSDW"=SDW) )
+}
+
+WHist <- function(W,Link=NULL){#Plots histogram with weights W (W is 1 by M)
+  
+  LinkDeriv <- function(x){ #For evluating the derivative of the link function we use
+    if (x >= -3 && x<=3){
+      Out <- ( inv.logit(c(-3,3))[2]-inv.logit(c(-3,3))[1] )/6 #In the piecewise linear part
+      #THIS IS ONLY THE CORRECT DERIVATIVE FOR MY CASE (linear -3 to +3)
+    }else{
+      Out <- (exp(x))/(1+exp(x)^2)
+    }
+    return(Out)
+  }
+  
+  A <- function(x){ #Defines the function of interest to return (outputs the density corresponding to W)
+    M <- length(W)
+    if (is.null(Link)==FALSE){
+      xLink <- Link(x)
+      xLinkderiv <- (Vectorize(LinkDeriv))(x) #computes the derivative at each point on the x axis
+    }
+    for (m in c(1:M)){
+      if ( (m-1)/M <= xLink && xLink < (m/M) ){ #so x is in bin m
+        C <- W[m]*M*xLinkderiv
+      }
+    }
+    if (xLink==1){
+      C <- 0
+    }
+    return(C)
+  }
+  B <- Vectorize(A)
+  return(B)
+}
+
+MCMCPi2PlotsQW <- function(Data,b,s,Q=NULL){ #Data frame e.g. ExperimentsN500 , N1000 etc. b burn in vector. Q true
+  L <- length(Data)
+  if (is.null(Q)){
+    Q <- 0*Data[[L]]$QList[[1]] #Gives 0 matrix of correct size
+  }
+  b <- rep(b,L/length(b))
+  ExperimentsQThin <- vector("list",L)
+  ExperimentsWThin <- vector("list",L)
+  MQ <- vector("list",L)
+  VQ <- vector("list",L)
+  SDQ <- vector("list",L)
+  MW <- vector("list",L)
+  VW <- vector("list",L)
+  SDW <- vector("list",L)
+  par(mfrow=c(2,5))
+  for (E in c(1:L) ){
+    QList <- Data[[E]]$QList
+    WList <- Data[[E]]$WList
+    LLHList <- Data[[E]]$LLHList
+    QList <- QList[(b[E]+1):30000]
+    WList <- WList[(b[E]+1):30000]
+    LLHList <- LLHList[(b[E]+1):30000]
+    ExperimentsQThin[[E]] <- LabelSwapLLH(QList,WList,LLHList,s)$QThin
+    ExperimentsWThin[[E]] <- LabelSwapLLH(QList,WList,LLHList,s)$WThin
+    R <- nrow(QList[[1]])
+    M <- ncol(WList[[1]])
+    MQ[[E]] <- PostMean(ExperimentsQThin[[E]])
+    VQ[[E]] <- matrix(0,R,R)
+    for (i in c(1:R)){
+      for (j in c(1:R) ){
+        VQ[[E]][i,j] <- var( EntryDraws( ExperimentsQThin[[E]],i,j ) )
+      }
+    }
+    SDQ[[E]] = sqrt(VQ[[E]])
+    
+    MW[[E]] <- PostMean(ExperimentsWThin[[E]])
+    VW[[E]] <- matrix(0,R,M)
+    for (i in c(1:R)){
+      for (j in c(1:M) ){
+        VW[[E]][i,j] <- var( EntryDraws( ExperimentsWThin[[E]],i,j ) )
+      }
+    }
+    SDW[[E]] = sqrt(VW[[E]])
+    
+    Perms <- permutations(R,R)
+    PermutedTrueQ <- Q
+    if (sum(Q)>0){ #Only do if the Q was not NULL
+      D <- rep(0,dim(Perms)[1]) #allocate
+      for (j in c(1:dim(Perms)[1]) ){
+        for (r in c(1:R)){
+          for (s in c(1:R)){
+            PermutedTrueQ[r,s] <- Q[Perms[j,r],Perms[j,s]] #permuting truth equivalent to permuting mean
+          }
+        }
+        D[j] <- Distance(MQ[[E]],PermutedTrueQ)
+      }
+      PermIndex <- which(D==min(D))[1]
+      for (r in c(1:R)){
+        for (s in c(1:R)){
+          PermutedTrueQ[r,s] <- Q[ Perms[PermIndex,r],Perms[PermIndex,s] ] #see which version of truth it fits best
+        }
+      }
+    }
+    #hist(EntryDraws(ExperimentsQThin[[E]],1,1),breaks=seq(0,1,0.0125),main = paste("Q11 Histogram in Experiment #",E,"of", L,"N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(1,1)")
+    hist(EntryDraws(ExperimentsQThin[[E]],1,1),breaks=seq(0,1,0.0125),main = paste("Q11 Histogram for N=",Data[[E]]$SampleSize), xlab = "Q(1,1)")
+    lines(c(MQ[[E]][1,1],MQ[[E]][1,1]),c(0,10000),col="blue")
+    lines(c(PermutedTrueQ[1,1],PermutedTrueQ[1,1]),c(0,10000),col="red")
+    #hist(EntryDraws(ExperimentsQThin[[E]],2,2),breaks=seq(0,1,0.0125),main = paste("Q22 Histogram in Experiment #",E,"of", L,"N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(2,2)")
+    hist(EntryDraws(ExperimentsQThin[[E]],2,2),breaks=seq(0,1,0.0125),main = paste("Q22 Histogram for N=",Data[[E]]$SampleSize), xlab = "Q(2,2)")
+    lines(c(MQ[[E]][2,2],MQ[[E]][2,2]),c(0,10000),col="blue")
+    lines(c(PermutedTrueQ[2,2],PermutedTrueQ[2,2]),c(0,10000),col="red")
+    Link <- Data$Inputs[[E]]$Link
+    Line <- seq(-5,5,0.01)
+    Hist <- WHist(MW[[E]][1,],Link)(Line)
+    plot(Line,Hist,"l",col="green",main = paste("Emission 1, with N=",Data[[E]]$SampleSize),xlab = "x")
+    Hist <- WHist(MW[[E]][2,],Link)(Line)
+    plot(Line,Hist,"l",col="green",main = paste("Emission 2, with N=",Data[[E]]$SampleSize),xlab = "x")
+  }
+  return( list("QThin"=ExperimentsQThin,"PostMeanQ"=MQ,"PostVarianceQ"=VQ, "PostSDQ"=SDQ,"WThin"=ExperimentsWThin,"PostMeanW"=MW,"PostVarianceW"=VW, "PostSDW"=SDW) )
 }

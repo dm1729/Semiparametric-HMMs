@@ -319,6 +319,53 @@ LabelSwapLLH <- function(QList,WList,LLHList,s,A=NULL,B=NULL){#Thins by factor s
   return(list("QThin"=QThin,"WThin"=WThin))
 }
 
+#LabelSwapLLHPi2 <- function(QList,WList,LLHList,s,A=NULL,B=NULL){#Thins by factor s, swaps labels
+#  R <- dim(QList[[1]])[1] #Recovers number of hidden states
+#  M <- dim(WList[[1]])[2] #Recoves number of bins
+#  if ( is.null(A) ){
+#    A <- priorset(R,M)[[1]]
+#  }
+#  if ( is.null(B) ){
+#    B <- priorset(R,M)[[2]]
+#  }
+#  S <- length(QList)/s #s must divide length(QList)
+#  QThin <- vector("list",S) #Thinned list, will place permuted Q in
+#  WThin <- vector("list",S) #Thinned list
+#  PostDensity <- rep(0,S)
+# for (i in c(1:S) ){ #Finds the  posterior mode
+#    Prior <- sum((A-1)*log(QList[[s*(i-1)+1]])) + sum((B-1)*log(WList[[s*(i-1)+1]])) #Sets Prior prob up to const(A,B)
+#    PostDensity[i] <- LLHList[[s*(i-1)+1]] + Prior
+#  }
+#  PivotIndex <- which(PostDensity==max(PostDensity))[1] #Finds argmax of posterior
+#  PivotQ <- QList[[PivotIndex]]
+#  PivotW <- WList[[PivotIndex]]
+#  Perms <- permutations(R,R) #Matrix of permutations
+#  for (i in c(1:S)){
+  #  D <- rep(0,dim(Perms)[1]) #Holds distances for each i to choose best one
+  #  Q <- QList[[s*(i-1)+1]] #Initialise
+  #  W <- WList[[s*(i-1)+1]]
+  #  for (j in c( 1:dim(Perms)[1] ) ){#perms from gtools
+    #  for (k in c(1:R)){
+       # W[k,] <- WList[[s*(i-1)+1]][Perms[j,k],] #Permute each vector of W[[i]]
+       # for (l in c(1:R)){
+      #    Q[k,l] <- QList[[s*(i-1)+1]][ Perms[j,k] , Perms[j,l] ] #Permute Q[[i]] accoridng to perm j
+     #   }
+    #  } #End loop over matrix entries for particular perm
+   #   D[j] <- Distance(c(Q,W),c(PivotQ,PivotW)) # Finds distance between Q,W(Q[[i], applied perm j) and Q,W(pivot)
+  #  } #End loop over particular perm: Next apply best perm
+  #  PermIndex <- which(D==min(D)) #Tells us which permutation was optimal for this Q
+  #  WThin[[i]] <- matrix(0, nrow = R, ncol = M) #Create matrix of correct size in list
+  #  QThin[[i]] <- matrix(0, nrow=R, ncol=R) # As above
+  #  for (k in c(1:R)){ #Now we set entry of the list of outputs according to this perm
+    #  WThin[[i]][k,] <- WList[[s*(i-1)+1]][Perms[PermIndex,k],] #Permute each vector of W[[i]]
+    #  for (l in c(1:R)){
+     #   QThin[[i]][k,l] <- QList[[s*(i-1)+1]][ Perms[PermIndex,k] , Perms[PermIndex,l] ] #Permute Q[[i]] accoridng to perm j
+    #  }
+   # } #End loop over matrix entries
+  #} #End loop over S, so now all elements of QThin are entered with appropriate permutation
+ # return(list("QThin"=QThin,"WThin"=WThin))
+#}
+
 #LogPriorProb <- function(Q,W,A,B){ #Input transition matrix and weights, output log dirichlet density
   #*UP TO CONSTANTS DEPENDING ON A,B SINCE A,B ARE FIXED IN MAXIMISATION STEP*
   #P <- sum((A-1)*log(Q)) + sum((B-1)*log(W))
@@ -373,33 +420,6 @@ MyLinkAB <- function(A,B){
   return(Func)
 }
 
-#BackSmooth <- function(X,Y,W,Q){#Alternate computation for distribution of X
-  #For details see C8 slides of C.R.
- # N <- length(Y)
- # R <- dim(Q)[1]
- # M <- dim(W)[2]
- # P <- vector("list",N)
- # P[[N]] <- matrix(0,nrow=R,ncol=R) #P^N(i,j)=P(X_N=j|X_{N-1}=i,Y_N)
-  #for (i in c(1:R) ){
-  #  for (j in c(1:R)){
-   #   P[[N]][i,j] <- Q[i,j]*W[j,Y[N]] #Proportional for fixed i
-   # }
-  # P[[N]][i,] <- P[[N]][i,]/sum(P[[N]][i,]) #Normalise
-  #}
-  
-  #for (t in c((N-1):2))){
-   # P[[t]] <- matrix(0,nrow = R,ncol = R)
-   # for (i in c(1:R) ){
-    #  for (j in c(1:R)){
-    #    P[[t]][i,j] <- Q[i,j]*W[j,Y[t]]*sum(P[[t+1]][j,]) #P[[t(i,j)=P(X_t=j|X_{t-1}=i,Y_N)
-    #  }
-    #  P[[t]][i,] <- P[[N]][i,]/sum(P[[N]][i,])
-   # }
- # }
-#Now we have a list P containing P(X_t=i|X_{t-1}=j,data)
-#for t=1 we would be conditioning on X_0, need to do different approach here
-
-#}
 
 EmissionPosterior <- function(Y,R,QList,Bdir=1,Mpois=exp(1),X=NULL){ # Y data R states M bins b burn-in I iterations QList Q draws
   #Initilisation of Prior
