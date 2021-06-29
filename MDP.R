@@ -33,27 +33,30 @@ MDPPost <- function(Y,M,cmu,cvar,igshape,igrate,QList,SMax=NULL){ #M precision c
     if (l==1){
       U <- MDPUSample(W,X,S)
     }else{
-      U <- MDPUSample(W[[(l-1)]],X,S)  
+      U <- MDPUSample(WList[[(l-1)]],X,S)  
     }
     
     #Step 2bii
+    #ALSO NEED TO ADD IN PRIOR DRAWS
     
     if (l==1){
-      for (j in unique(S) ){ #Theta update S can go between 1 and SMax but won't contain most of them
+      ThList[[l]] <- matrix(0,nrow=SMax,ncol=R)
+      for (r in c(1:R) ){ #Theta update S can go between 1 and SMax but won't contain most of them
         #Only need to update those j for which s_i=j for some i
-        for (r in c(1:R) ){
+        for (j in unique(S[X==r]) ){
           ThList[[l]][j,r] <- MDPThSample(j,r,S,X,Y,cmu,cvar,pres)
         }
+        ThList[[l]][-unique(S[X==r]),r] <- rnorm(SMax-length(unique(S[X==r])),cmu,sqrt(cvar))
+        #updates remaining entries with prior draws
       }
     }else{
-      ThList[[l]] <- ThList[[l-1]] #Preallocates for theta update (keeps most entries the same)
-      #Update empty entries with new prior draws (FILL IN)
-      #INSERT PRIOR DRAWS HERE
-      for (j in unique(S) ){ #Theta update S can go between 1 and SMax but won't contain most of them
-        #Only need to update those j for which s_i=j for some i
-        for (r in c(1:R) ){
+      ThList[[l]] <- matrix(0,nrow=SMax,ncol=R)
+      for (r in c(1:R) ){
+        for (j in unique(S[X==r]) ){ #go through pairs for which product in notes is non-empty
+          #(product over i s.t. X_i=r and S_i=j)
           ThList[[l]][j,r] <- MDPThSample(j,r,S,X,Y,cmu,cvar,PresList[[l-1]])
         }
+        ThList[[l]][-unique(S[X==r]),r] <- rnorm(SMax-length(unique(S[X==r])),cmu,sqrt(cvar))
       }
     }
     
@@ -64,23 +67,20 @@ MDPPost <- function(Y,M,cmu,cvar,igshape,igrate,QList,SMax=NULL){ #M precision c
     } 
     
     #Step 2biii
-    if (l==1){
-      for (j in unique(S) ){ #When j is one of the elements of S, j=s_i for some i in product so impacts dist
-        #Maybe I want j in c(1:max(S)) instead?
-        for (r in unique(X[S==j]) ){ #only loop over those r for which U[S == j && X == r] not empty
-          V[j,r] <- MDPVSample(j,r,U,V,W,S,X,M)
-        }
+    for ( r in c(1:R) ){
+      for ( j in c(1:max(S[X==r])) ){ #the distinct levels which are occupied for that state
+        V[j,r] <- MDPVSample(j,r,U,V,S,X,M)
       }
-    } else {
-    for (j in unique(S) ){ #When j is one of the elements of S, j=s_i for some i in product so impacts dist
-      #Maybe I want j in c(1:max(S)) instead?
-      for (r in unique(X[S==j]) ){
-        V[j,r] <- MDPVSample(j,r,U,V,W[[l-1]],S,X,M)
-      }
+      V[-c(1:max(S[X==r])),r] <- rbeta(SMax-max(S[X==r]),1,M) #prior draws for rest
+      V[SMax,r] <- 1
     }
-    }
+    
     #ALSO WANT SOME PRIOR DRAWS. DO V[-UNIQUE(S),r] (need state by state too)
-    WList[[l]]  <- V*c(1,cumprod(1-V))[1:SMax] #Stores the stick associated to most recent V update
+    WList[[l]] <- matrix(0,nrow = SMax ,ncol = R)
+    for (r in c(1:R) ){
+      WList[[l]][,r]  <- V[,r]*c(1,cumprod(1-V[,r]))[1:SMax] #Stores the stick associated to most recent V update
+      WList[[l]][SMax,r] <- 1-sum(WList[[l]][1:(SMax-1),r]) #Ensures unit (rounding errors)
+      }
     
     #Step 2biv
     for (i in c(1:N) ){ #For updating slices
@@ -88,17 +88,16 @@ MDPPost <- function(Y,M,cmu,cvar,igshape,igrate,QList,SMax=NULL){ #M precision c
     }
   }
   
-  return( list("Thetas"=ThList,"StickBreaks"=WList,"LogLikes"-LLHList) ) #Then draw is sum( W_i*f(.|theta_i) )
+  return( list("Thetas"=ThList,"StickBreaks"=WList,"LogLikes"-LLHList,"Precisions"=PresList) ) #Then draw is sum( W_i*f(.|theta_i) )
   #The 'empty states' can be then filled with prior draws for getting proper posterior draws
   #actually might need to do these on the fly to be able to update X!
 }
 
 
-
 MDPUSample <- function(W,X,S){ #Update slicing ( Step 2b(i) ) This is just a unif(0,Trunc) for specified trunc point
   N <- length(X)
   U <- runif(N) #Draws from uniform on 0 to W[s_i,X_i]
-  for (r in c(1:2) ){ #make R-dep. Not sure how to do without loop over r?
+  for (r in c(1:ncol(W)) ){ #make R-dep. Not sure how to do without loop over r?
   U[X==r] <- U[X==r]*W[S[X==r],r] #Want to make it at most W[S_i,X_i]
   }
   return(U)
@@ -108,31 +107,49 @@ MDPThSample <- function(j,r,S,X,Y,cmu,cvar,pres){ #Update thetas ( Step 2b(ii) )
 #Use conjugacy of base measure alpha
 suff <- sum(Y[(S==j)&(X==r)]) #The sufficient stat sum(relevant obs) appearing in the update formula
 sampsize <- sum((S==j)&(X==r)) #The 'effective sample size' for updating this theta
-postvar <- ( (1/cvar[r]^2)+sampsize*pres(r) )^(-1) #Using wikipedia https://en.wikipedia.org/wiki/Conjugate_prior
-postmean <- postvar*( cmu/cvar + suff*pres )
-theta <- rnorm(1,postmean,postvar)
+postvar <- ( (1/cvar[r]^2)+sampsize*pres[r] )^(-1) #Using wikipedia https://en.wikipedia.org/wiki/Conjugate_prior
+postmean <- postvar*( cmu/cvar + suff*pres[r] )
+theta <- rnorm(1,postmean,sqrt(postvar))
 return(theta)
 }
 
 MDPPresSample <- function(r,S,X,Y,Th,igshape,igrate){
   sampsize <- sum(X==r) #effective sample size
   postshape <- igshape + (sampsize/2) #using conjugacy
-  postrate <- igrate + 0.5*sum(Y[X==r]-Theta[S[X==r],r])
+  postrate <- igrate + 0.5*sum( (Y[X==r]-Th[S[X==r],r])^2 )
   tau <- rgamma(1,postshape,rate=postrate)
 }
 
-MDPVSample <- function(j,r,U,V,W,S,X,M){#Update relative stick weights ( 2b(iii) )
+MDPVSample <- function(j,r,U,V,S,X,M){#Update relative stick weights ( 2b(iii) )
   #Use quantile method for sampling from continuous distributions
   #Set endpoints as per pg 109 of vdV (but only looking at the relevant for each state)
-  a <- max( U[ S==j&X==r ] )/((cumprod(1-V[,r])[j])/(1-V[j,r])) #truncation lower bound
-  b <- min( 1- U[X==r&S>j]/( V[S[X==r&S>j],r]*(cumprod(1-V[,r])[S[X==r&S>j]-1]/(1-V[j,r])) )  )
-  #check implementation of b
+  if (sum( (S==j)&(X==r) )>0){ #if there exist some relevant points
+  a <- max(0, max(  (U[ S==j&X==r ] )/( (cumprod(1-V[,r])[j])/(1-V[j,r]) ) ) ) #truncation lower bound
+  }else{
+  a <- 0  
+  }
+  #Check a in the case for j<max but not one of the s_i (gap)
+  #I suppose just take 0 (hence the max with 0)
+  if (sum( (S>j)&(X==r) )>0 ){
+  b <- min(1, min(1- (U[X==r&S>j])/(V[S[X==r&S>j],r]*(cumprod(1-V[,r])[S[X==r&S>j]])/( (1-V[j,r])*(1-V[,r])[S[X==r&S>j]] ) ) )  )
+  }else{
+  b <- 1  
+  }
+  #check b in the case for j=max (so min is empty)
+  #I suppose just take 1 (hence the min with 1)
+  if ( abs(a-b) <10^(-5) ) { #truncdist doesnt work if R thinks a=b
+    #issues here with getting a>b? weird. will check out
+    #issues with a and b not even defined??
+    Vdraw <- a
+  } else{
   Vdraw <- truncdist::rtrunc(1,"beta",a,b,shape1=1,shape2=M) #library(truncdist)
+  }
   return(Vdraw)
 }
 
 MDPSSample <- function(i,U,W,X,Y,Th,Pres){#Update pointer variables ( 2b(iv) )
   Trunc <- max(which(W[,X[i]]>U[i])) #Tells us the max W s_i val we can accept given that W_{s_i}>U_i
+  #getting no non-missing arguments error, but how?
   prob <- sqrt(Pres[X[i]])*exp( -0.5*Pres[X[i]]*( Y[i]-Th[1:Trunc,X[i]] )^2 ) #We can point anywhere compatible with the indicator condition
   #makes a vector for each index of Theta (possible vals of s_i)
   s <- sample(c(1:Trunc),1,replace=TRUE,prob=prob) #Samples SMin to truncation SMax according to density
@@ -141,9 +158,9 @@ MDPSSample <- function(i,U,W,X,Y,Th,Pres){#Update pointer variables ( 2b(iv) )
 
 #JUST TWO STATES FOR NOW (just need to change the distributionset line but don't want inefficient code)
 MDPXSample <- function(R,Y,Q,W,S,Th,Pres){ #eps tol, data, Qmat, V betas, S pointers, Th locations
-  C <- nrow(W)
+  C <- nrow(W) #(Recovers SMax)
   pi <- abs(eigen(t(Q))$vectors[,1])/sum(abs(eigen(t(Q))$vectors[,1])) #stationary dist
-  dist <- distributionSet(dis="MIXTURE",mean=list(Th[,1],Th[,2]),var = list(rep(Pres[1]^(-1),C),rep(Pres[2]^(-1),C), W ) )
+  dist <- distributionSet(dis="MIXTURE",mean=list(Th[,1],Th[,2]),var = list(rep(Pres[1]^(-1),C),rep(Pres[2]^(-1),C)), list(W[,1],W[,2]) )
   HMM <- HMMSet(pi,Q,dist)
   F <- forwardBackward(HMM,Y) #stores forwardbackward variables
   G <- F$Gamma # Marginal probabilities of X_t=i given data, params
