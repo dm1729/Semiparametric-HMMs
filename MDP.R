@@ -2,7 +2,7 @@ MDPPost <- function(Y,M,cmu,cvar,igshape,igrate,QList,SMax=NULL){ #M precision c
   #Q list of draws from pi1 posterior eps tolerance SMax largest number of Dirichlet components allowed
   N <- length(Y)
   if (is.null(SMax)){
-    SMax <- max( 20,sqrt(N) )
+    SMax <- max( 20,floor(sqrt(N)) )
   }
   pres <- rgamma(R,igshape,igrate) #inv variance of mixture comps
   R <- nrow(QList[[1]]) #Number of states
@@ -78,8 +78,9 @@ MDPPost <- function(Y,M,cmu,cvar,igshape,igrate,QList,SMax=NULL){ #M precision c
     #ALSO WANT SOME PRIOR DRAWS. DO V[-UNIQUE(S),r] (need state by state too)
     WList[[l]] <- matrix(0,nrow = SMax ,ncol = R)
     for (r in c(1:R) ){
-      WList[[l]][,r]  <- V[,r]*c(1,cumprod(1-V[,r]))[1:SMax] #Stores the stick associated to most recent V update
-      WList[[l]][SMax,r] <- 1-sum(WList[[l]][1:(SMax-1),r]) #Ensures unit (rounding errors)
+      #WList[[l]][,r]  <- V[,r]*c(1,cumprod(1-V[,r]))[1:SMax] #Stores the stick associated to most recent V update
+      WList[[l]][,r]  <- V[,r]*c(1,cumprod(1-V[1:(SMax-1),r]))[1:SMax] #try this
+      #WList[[l]][SMax,r] <- 1-sum(WList[[l]][1:(SMax-1),r]) #Ensures unit (rounding errors)
       }
     
     #Step 2biv
@@ -88,7 +89,7 @@ MDPPost <- function(Y,M,cmu,cvar,igshape,igrate,QList,SMax=NULL){ #M precision c
     }
   }
   
-  return( list("Thetas"=ThList,"StickBreaks"=WList,"LogLikes"-LLHList,"Precisions"=PresList) ) #Then draw is sum( W_i*f(.|theta_i) )
+  return( list("Thetas"=ThList,"StickBreaks"=WList,"LogLikes"=LLHList,"Precisions"=PresList) ) #Then draw is sum( W_i*f(.|theta_i) )
   #The 'empty states' can be then filled with prior draws for getting proper posterior draws
   #actually might need to do these on the fly to be able to update X!
 }
@@ -99,6 +100,7 @@ MDPUSample <- function(W,X,S){ #Update slicing ( Step 2b(i) ) This is just a uni
   U <- runif(N) #Draws from uniform on 0 to W[s_i,X_i]
   for (r in c(1:ncol(W)) ){ #make R-dep. Not sure how to do without loop over r?
   U[X==r] <- U[X==r]*W[S[X==r],r] #Want to make it at most W[S_i,X_i]
+  #Problem where we draw an exact zero if we take W[22,r]?
   }
   return(U)
 }
@@ -124,19 +126,44 @@ MDPVSample <- function(j,r,U,V,S,X,M){#Update relative stick weights ( 2b(iii) )
   #Use quantile method for sampling from continuous distributions
   #Set endpoints as per pg 109 of vdV (but only looking at the relevant for each state)
   if (sum( (S==j)&(X==r) )>0){ #if there exist some relevant points
-  a <- max(0, max(  (U[ S==j&X==r ] )/( (cumprod(1-V[,r])[j])/(1-V[j,r]) ) ) ) #truncation lower bound
+  #a <- ((1-V[j,r])*max( (U[ S==j&X==r ] )))/(cumprod(1-V[,r])[j]) #truncation lower bound
+  a <- (max( (U[ S==j&X==r ] )))/(min(1,cumprod(1-V[,r])[j-1])) #truncation lower bound. when j=1 takes 1
   }else{
   a <- 0  
   }
   #Check a in the case for j<max but not one of the s_i (gap)
   #I suppose just take 0 (hence the max with 0)
   if (sum( (S>j)&(X==r) )>0 ){
-  b <- min(1, min(1- (U[X==r&S>j])/(V[S[X==r&S>j],r]*(cumprod(1-V[,r])[S[X==r&S>j]])/( (1-V[j,r])*(1-V[,r])[S[X==r&S>j]] ) ) )  )
+  #b <- min(1- ( (U[X==r&S>j])*( (1-V[j,r]) )*(1-V[,r])[S[X==r&S>j]] )/(V[S[X==r&S>j],r]*(cumprod(1-V[,r])[S[X==r&S>j]]) ) )
+  b <- min(1- ( (U[X==r&S>j])*( (1-V[j,r]) ) )/(V[S[X==r&S>j],r]*(cumprod(1-V[,r])[S[X==r&S>j]-1]) ) )
+  #print(U[S==max(S)]) #i think theres a problem with the U
+  #if (max(S)==22){
+  #print(c("r=",r))
+  #print(X[S==22])
+  #print(c("Diagnostic 1 is",(U[X==r&S==max(S)])))
+  #print((1-V[j,r]))
+  #print(1-V[,r])
+  #print((1-V[,r])[S[X==r&S==22]])
+  #print(c("Diagnostic 5 is",V[S[X==r&S>j],r]))
+  #print(V[S[X==r&S==22],r])
+  #print((cumprod(1-V[,r])[S[X==r&S>j]]))
+  #print((cumprod(1-V[,r])[S[X==r&S==22]]))
+  #print(c("Diagnostic 9 is", cumprod(1-V[,r])))
+  #print(a)
+  #print(b)
+  #print(j)
+  #print(S)
+  #print(cumsum(W[,r]))
+  #print(min(W))
+  #}
+  #print((U[X==r&S>j])*( (1-V[j,r])*(1-V[,r])[S[X==r&S>j]] ))
+  #print((V[S[X==r&S>j],r]*(cumprod(1-V[,r])[S[X==r&S>j]]) ))
   }else{
   b <- 1  
   }
   #check b in the case for j=max (so min is empty)
   #I suppose just take 1 (hence the min with 1)
+  
   if ( abs(a-b) <10^(-5) ) { #truncdist doesnt work if R thinks a=b
     #issues here with getting a>b? weird. will check out
     #issues with a and b not even defined??
@@ -176,5 +203,21 @@ MDPXSample <- function(R,Y,Q,W,S,Th,Pres){ #eps tol, data, Qmat, V betas, S poin
     P <- Xsi[[(i-1)]][X[(i-1)],]/G[(i-1),X[(i-1)]] #Proposal for drawing X_i | X_{i-1}
     X[i] <- c(1:R)%*%rmultinom(1,1,P) #dot product extras 1,..,R from indicator
   }
-  return(list("X"=X,"LLH"=LLH))
+  return( list("X"=X,"LLH"=LLH) )
+}
+
+MDPPlot <- function(Data){#Data output of MDPPost. For now just plots MLE
+  for (j in c(1:2)){
+  m <- which(unlist(Data$LogLikes)==max(unlist(Data$LogLikes)))[1]
+  t <- Data$Thetas[[m]][,j]
+  w <- Data$StickBreaks[[m]][,j]
+  tau <- Data$Precisions[[m]][j]
+  x <- seq(-5,5,0.001)
+  y <- x*0
+  for (i in c(1:length(w) )) {
+  y <- y+ w[i]*( tau^(0.5)*(1/sqrt(2*pi))*exp(-0.5*tau*(x-t[i])^2) )
   }
+  plot(x,y)
+  print(tau)
+  }
+}
