@@ -4,8 +4,8 @@ MDPPost <- function(Y,M,cmu,cvar,igshape,igrate,QList,SMax=NULL){ #M precision c
   if (is.null(SMax)){
     SMax <- max( 20,floor(sqrt(N)) )
   }
-  pres <- rgamma(R,igshape,igrate) #inv variance of mixture comps
   R <- nrow(QList[[1]]) #Number of states
+  pres <- rgamma(R,igshape,igrate) #inv variance of mixture comps
   L <- length(QList) #QList is from Step 1 of cut posterior algo (implemented previously)
   ThList <- vector("list",L) #Initialize with prior draws
   WList <- vector("list",L) #Initialize with prior draws
@@ -193,9 +193,8 @@ MDPXSample <- function(R,Y,Q,W,S,Th,Pres){ #eps tol, data, Qmat, V betas, S poin
   G <- F$Gamma # Marginal probabilities of X_t=i given data, params
   #Debugging: G seems to well reflect pi in the makeup of hidden states
   Xsi <- F$Xsi #List of T, Xsi[[t]]_{rs}=Xsi_{rs}(t)=P(X_t=r,X_{t+1}=s | Y,Param)
-  #Chib method better? Unsure
   #Draw X_1,...,X_T sequentially
-  LLH <- F$LLH #Gives log likelihood for input parameters, used in label swapping
+  LLH <- F$LLH #Gives log likelihood for input parameters
   R <- dim(Q)[1]
   X <- rep(0,length(Y))
   X[1] <- sample(R,1,prob = G[1,])
@@ -206,7 +205,7 @@ MDPXSample <- function(R,Y,Q,W,S,Th,Pres){ #eps tol, data, Qmat, V betas, S poin
   return( list("X"=X,"LLH"=LLH) )
 }
 
-MDPPlot <- function(Data){#Data output of MDPPost. For now just plots MLE
+MDPMLEPlot <- function(Data){#Data output of MDPPost. For now just plots MLE
   for (j in c(1:2)){
   m <- which(unlist(Data$LogLikes)==max(unlist(Data$LogLikes)))[1]
   t <- Data$Thetas[[m]][,j]
@@ -221,3 +220,33 @@ MDPPlot <- function(Data){#Data output of MDPPost. For now just plots MLE
   print(tau)
   }
 }
+
+MDPFullPlot <- function(Data)
+  for (j in c(1:2)){
+    x <- seq(-5,5,0.001)
+    #Unlist Data matrix
+    f <- matrix(0,nrow=length(x),ncol=(length(Data$Thetas)-100))
+    fup <- rep(0,length(x))
+    flow <- rep(0,length(x))
+    fmean <- rep(0,length(x))
+    for (l in c(1:length(x)) ){
+      for (k in c(101:length(Data$Thetas))){
+        t <- Data$Thetas[[k]][,j]
+        w <- Data$StickBreaks[[k]][,j]
+        tau <- Data$Precisions[[k]][j]
+        for (i in length(Data$StickBreaks[[k]][,j])){
+          f[l,k-100] <- f[l,k-100] + w[i]*( tau^(0.5)*(1/sqrt(2*pi))*exp(-0.5*tau*(x[l]-t[i])^2) )
+        }
+      }
+      #print(f)
+      #print(length(x))
+      #print(length(Data$Thetas))
+      fmean[l] <- mean(f[l,])
+      fup[l] <- quantile(f[l,],0.95)
+      flow[l] <- quantile(f[l,],0.05)
+    }
+  plot(x,fmean,col="blue")
+  lines(x,fup,col="red")
+  lines(x,flow,col="red")
+  }
+    
