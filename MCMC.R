@@ -19,7 +19,7 @@ for (e in c(1:E) ){
 return(list("Inputs"=ListInputs,"Data"=ListData,"Outputs"=ListOutputs))
 }
 
-HmmMCMC2 <- function(M,N,D,mu,sig2,I){ #D distinct data sets, N number of obs. No burn in. Uniform prior.
+HmmMCMC2 <- function(M,N,D,mu,sig2,I,Y=NULL,X0=NULL){ #D distinct data sets, N number of obs. No burn in. Uniform prior.
   R = 2 #states
   Q <- t(matrix(c(0.7,0.3,0.2,0.8),2,2))
   B <- length(M) #How many different bin sizes
@@ -33,15 +33,20 @@ HmmMCMC2 <- function(M,N,D,mu,sig2,I){ #D distinct data sets, N number of obs. N
     means <- mu[(R*d-1):(R*d)]
     vars <- sig2[(R*d-1):(R*d)]
     Link <- MyLinkAB( min(means) - 2*sqrt(sig2 [ which(means==min(means))[1] ] ) , max(means) + 2*sqrt( sig2[ which( means==max(means) )[1] ] ) )
-    Sims <- SimulateHMMNorm( Q,means,vars,max(N) ) #Simulates a full data set for the highest N value
+    e
+    if (is.null(Y)){#can instead specify data set if don't want to generate new one
+    Sims <- SimulateHMMNorm( Q,means,vars,max(N) ) #Simulates a full data set for the highest N valu
     Y <- Sims$obs
+    }
+    if (is.null(X0)){
     X0 <- Sims$states
+    }
     for (j in c(1:S)){
       for (i in c(1:B)){
         ListInputs[[e]] <- list("means"=means,"vars"=vars, "Link"=Link, "SampleSize" = N[j], "BinCount"=M[i], "Iterations" = I)
         ListData[[e]] <- list("obs"=Y[1:N[j]],"states"=X0[1:N[j]]) #Observations and states for this experiment
         YBin <- factor( Bin(Y[1:N[j]],M[i],Link) , c(1:M[i]) ) #Bins first N[j] observations into M[i] bins
-        ListOutputs[[e]] <- QWPosteriorNoLatent( YBin,R,M[i],0,I) #Gives simulated Q, W, states and loglikelihoods
+        ListOutputs[[e]] <- QWPosteriorSomeLatent( YBin,R,M[i],0,I) #Gives simulated Q, W, states and loglikelihoods
         e <- e+1 #Move to next entry of lists for following iteration of loop.
       }
     }

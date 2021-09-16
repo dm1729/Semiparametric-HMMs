@@ -147,6 +147,41 @@ QWPosteriorNoLatent <- function(Y,R,M,b=0,I,Adir=1,Bdir=1,X=NULL){ # Y data R st
   return(list("QList"=LQ,"WList"=LW,"LLHList"=LLLH))
 }
 
+QWPosteriorSomeLatent <- function(Y,R,M,b=0,I,Adir=1,Bdir=1,X=NULL){ # Y data R states M bins b burn-in I iterations this code will not output latent states
+  #Initilisation of Prior
+  C <- priorset(R,M,rep(Adir,R),rep(Bdir,M) ) #Adir, Bdir prior precision
+  A <- C[[1]] #Initial Q Dirichlet weights
+  B <- C[[2]] #Initial W Dirichlet weights
+  #library(gtools)
+  #library(RHmm)
+  #Initialisation on X
+  n <- length(Y)
+  if (is.null(X)){
+    X <- c(t(rmultinom(n,1,rep(1,R)))%*%c(1:R)) #Initial state vector, drawn randomly
+  }
+  #Initialisation on Q,W not even required?
+  for (i in c(1:b) ){ #Burn in phase (to get good initialisation on X, others don't matter?)
+    Q <- QGibbs(X,A) #Draw Q from conditional dist (update dirichlet weights)
+    W <- WGibbs(X,Y,B) #Same as Q but with relevant weight update
+    X <- XSample(Y,Q,W)$X #Sample states X given Q,W,Y using Forward/Backward
+  }
+  LQ <- vector("list",I) #Gets a list ready to store the draws from Q, L[[i]] is draw i of Q
+  LW <- vector("list",I)
+  LLLH <- vector("list",I) #for storing log likelihood
+  LX <- vector("list",I)
+  for (i in c(1:I)){ #Here we will store draws on Q and W
+    LQ[[i]] <- QGibbs(X,A)
+    LW[[i]] <- WGibbs(X,Y,B)
+    SamplesLLH <- XSample( Y,LQ[[i]],LW[[i]] ) #also computes log likelihood for Q[i] and W[i]
+    LLLH[[i]] <- SamplesLLH$LLH
+    X <- SamplesLLH$X
+    if (LLLH[[i]]==max(unlist(LLLH)[1:i]) ){ #store latents when encountering new maximum for likelihood
+      LX[[i]] <- X
+    }
+  }
+  return(list("QList"=LQ,"WList"=LW,"LLHList"=LLLH,"XList"=LX))
+}
+
 QWPosteriorFixState <- function(Y,R,M,b,I,X=NULL){ # Y data R states M bins b burn-in I iterations
   #Initilisation of Prior
   A <- priorset(R,M)[[1]] #Initial Q Dirichlet weights, can be customized

@@ -1,4 +1,4 @@
-MDPPost <- function(Y,M,cmu,cvar,igshape,igrate,QList,SMax=NULL){ #M precision cmucvar params for centre measure
+MDPPost <- function(Y,M,cmu,cvar,igshape,igrate,QList,X=NULL,SMax=NULL){ #M precision cmucvar params for centre measure
   #Q list of draws from pi1 posterior eps tolerance SMax largest number of Dirichlet components allowed
   N <- length(Y)
   if (is.null(SMax)){
@@ -17,7 +17,9 @@ MDPPost <- function(Y,M,cmu,cvar,igshape,igrate,QList,SMax=NULL){ #M precision c
     V[,r] <- c(rbeta((SMax-1),1,(M)),1) #Prior draws for V. Make last one =1 to make a unit stick for W
     W[,r] <- V[,r]*c(1,cumprod(1-V[,r]))[1:SMax]
   }
-  X <- c(t(rmultinom(N,1,rep(1,R)))%*%c(1:R)) #Random init of X (Posterior MAP of pi1?)
+  if (is.null(X)){
+    X <- c(t(rmultinom(N,1,rep(1,R)))%*%c(1:R)) #Random init of X (Posterior MAP of pi1?)
+  }
   S <- sample(c(1:SMax),N,replace=TRUE,prob = W[,1]) #Initialise pointers
   S[X==2] <- sample(c(1:SMax),sum(X==2),replace = TRUE,prob=W[,2]) #Change the ones for state 2
   #Edit initialisation to be for general # of states!
@@ -87,6 +89,96 @@ MDPPost <- function(Y,M,cmu,cvar,igshape,igrate,QList,SMax=NULL){ #M precision c
     for (i in c(1:N) ){ #For updating slices
       S[i] <- MDPSSample(i,U,WList[[l]],X,Y,ThList[[l]],PresList[[l]]) #need to vectorize!
     }
+    
+    
+  }
+  
+  return( list("Thetas"=ThList,"StickBreaks"=WList,"LogLikes"=LLHList,"Precisions"=PresList) ) #Then draw is sum( W_i*f(.|theta_i) )
+  #The 'empty states' can be then filled with prior draws for getting proper posterior draws
+  #actually might need to do these on the fly to be able to update X!
+}
+
+MDPPost2 <- function(Y,M,cmu,cvar,igshape,igrate,QList,X=NULL,C=10,SMax=NULL){ #M precision cmucvar params for centre measure
+  #Q list of draws from pi1 posterior eps tolerance SMax largest number of Dirichlet components allowed
+  N <- length(Y)
+  if (is.null(SMax)){
+    SMax <- max( 20,floor(sqrt(N)) )
+  }
+  R <- nrow(QList[[1]]) #Number of states
+  pres <- rgamma(R,igshape,igrate) #inv variance of mixture comps
+  L <- length(QList) #QList is from Step 1 of cut posterior algo (implemented previously)
+  ThList <- vector("list",L) #Initialize with prior draws
+  WList <- vector("list",L) #Initialize with prior draws
+  LLHList <- vector("list",L)
+  PresList <- vector("list",L)
+  V <- matrix(0,nrow=SMax,ncol=R)
+  W <- matrix(0,nrow=SMax,ncol=R)
+  for (r in c(1:R) ){
+    V[,r] <- c(rbeta((SMax-1),1,(M)),1) #Prior draws for V. Make last one =1 to make a unit stick for W
+    W[,r] <- V[,r]*c(1,cumprod(1-V[,r]))[1:SMax]
+  }
+  if (is.null(X)){
+    X <- c(t(rmultinom(N,1,rep(1,R)))%*%c(1:R)) #Random init of X (Posterior MAP of pi1?)
+  }
+  S <- sample(c(1:SMax),N,replace=TRUE,prob = W[,1]) #Initialise pointers
+  S[X==2] <- sample(c(1:SMax),sum(X==2),replace = TRUE,prob=W[,2]) #Change the ones for state 2
+  #Edit initialisation to be for general # of states!
+  for ( l in c(1:L) ){
+    #Step 2a (done outside for loop for l=1 in order to intialise S)
+    if (l>1){
+      StatesLLH <- MDPXSample(R,Y,QList[[l-1]],WList[[l-1]],S,ThList[[l-1]],PresList[[l-1]])
+      X <- StatesLLH$X
+      LLHList[[l-1]] <- StatesLLH$LLH
+    }
+    for (c in c(1:C) ){
+    #Step 2bi
+      U <- MDPUSample(W,X,S)
+    #Step 2bii
+    #ALSO NEED TO ADD IN PRIOR DRAWS
+    Th <- matrix(0,nrow=SMax,ncol=R)
+      for (r in c(1:R) ){
+        for (j in unique(S[X==r]) ){ #go through pairs for which product in notes is non-empty
+          #(product over i s.t. X_i=r and S_i=j)
+          Th[j,r] <- MDPThSample(j,r,S,X,Y,cmu,cvar,pres)
+        }
+        Th[-unique(S[X==r]),r] <- rnorm(SMax-length(unique(S[X==r])),cmu,sqrt(cvar))
+      }
+    
+    #UPDATE TAU
+    
+    for (r in c(1:R) ){
+      pres[r] <- MDPPresSample(r,S,X,Y,Th,igshape,igrate)
+    } 
+    
+    #Step 2biii
+    for ( r in c(1:R) ){
+      for ( j in c(1:max(S[X==r])) ){ #the distinct levels which are occupied for that state
+        V[j,r] <- MDPVSample(j,r,U,V,S,X,M)
+      }
+      V[-c(1:max(S[X==r])),r] <- rbeta(SMax-max(S[X==r]),1,M) #prior draws for rest
+      V[SMax,r] <- 1
+    }
+    
+    for (r in c(1:R) ){
+      #WList[[l]][,r]  <- V[,r]*c(1,cumprod(1-V[,r]))[1:SMax] #Stores the stick associated to most recent V update
+      W[,r]  <- V[,r]*c(1,cumprod(1-V[1:(SMax-1),r]))[1:SMax] #try this
+      #WList[[l]][SMax,r] <- 1-sum(WList[[l]][1:(SMax-1),r]) #Ensures unit (rounding errors)
+    }
+    
+    #Step 2biv
+    for (i in c(1:N) ){ #For updating slices
+      #print(U)
+      #print(S)
+      S[i] <- MDPSSample(i,U,W,X,Y,Th,pres) #need to vectorize!
+    }
+    
+    }#End loop over minichain
+    ThList[[l]] <- matrix(0,nrow=SMax,ncol=R)
+    PresList[[l]] <- rep(0,R)
+    WList[[l]] <- matrix(0,nrow = SMax ,ncol = R)
+    WList[[l]] <- W
+    ThList[[l]] <- Th
+    PresList[[l]] <- pres
   }
   
   return( list("Thetas"=ThList,"StickBreaks"=WList,"LogLikes"=LLHList,"Precisions"=PresList) ) #Then draw is sum( W_i*f(.|theta_i) )
@@ -109,8 +201,8 @@ MDPThSample <- function(j,r,S,X,Y,cmu,cvar,pres){ #Update thetas ( Step 2b(ii) )
 #Use conjugacy of base measure alpha
 suff <- sum(Y[(S==j)&(X==r)]) #The sufficient stat sum(relevant obs) appearing in the update formula
 sampsize <- sum((S==j)&(X==r)) #The 'effective sample size' for updating this theta
-postvar <- ( (1/cvar[r]^2)+sampsize*pres[r] )^(-1) #Using wikipedia https://en.wikipedia.org/wiki/Conjugate_prior
-postmean <- postvar*( cmu/cvar + suff*pres[r] )
+postvar <- ( (1/cvar^2)+sampsize*pres[r] )^(-1) #Using wikipedia https://en.wikipedia.org/wiki/Conjugate_prior
+postmean <- postvar*( cmu/cvar + suff*pres[r] ) #see also Walker paper
 theta <- rnorm(1,postmean,sqrt(postvar))
 return(theta)
 }
@@ -129,35 +221,13 @@ MDPVSample <- function(j,r,U,V,S,X,M){#Update relative stick weights ( 2b(iii) )
   #a <- ((1-V[j,r])*max( (U[ S==j&X==r ] )))/(cumprod(1-V[,r])[j]) #truncation lower bound
   a <- (max( (U[ S==j&X==r ] )))/(min(1,cumprod(1-V[,r])[j-1])) #truncation lower bound. when j=1 takes 1
   }else{
-  a <- 0  
+  a <- 0
   }
   #Check a in the case for j<max but not one of the s_i (gap)
   #I suppose just take 0 (hence the max with 0)
   if (sum( (S>j)&(X==r) )>0 ){
-  #b <- min(1- ( (U[X==r&S>j])*( (1-V[j,r]) )*(1-V[,r])[S[X==r&S>j]] )/(V[S[X==r&S>j],r]*(cumprod(1-V[,r])[S[X==r&S>j]]) ) )
   b <- min(1- ( (U[X==r&S>j])*( (1-V[j,r]) ) )/(V[S[X==r&S>j],r]*(cumprod(1-V[,r])[S[X==r&S>j]-1]) ) )
-  #print(U[S==max(S)]) #i think theres a problem with the U
-  #if (max(S)==22){
-  #print(c("r=",r))
-  #print(X[S==22])
-  #print(c("Diagnostic 1 is",(U[X==r&S==max(S)])))
-  #print((1-V[j,r]))
-  #print(1-V[,r])
-  #print((1-V[,r])[S[X==r&S==22]])
-  #print(c("Diagnostic 5 is",V[S[X==r&S>j],r]))
-  #print(V[S[X==r&S==22],r])
-  #print((cumprod(1-V[,r])[S[X==r&S>j]]))
-  #print((cumprod(1-V[,r])[S[X==r&S==22]]))
-  #print(c("Diagnostic 9 is", cumprod(1-V[,r])))
-  #print(a)
-  #print(b)
-  #print(j)
-  #print(S)
-  #print(cumsum(W[,r]))
-  #print(min(W))
-  #}
-  #print((U[X==r&S>j])*( (1-V[j,r])*(1-V[,r])[S[X==r&S>j]] ))
-  #print((V[S[X==r&S>j],r]*(cumprod(1-V[,r])[S[X==r&S>j]]) ))
+ 
   }else{
   b <- 1  
   }
@@ -175,7 +245,13 @@ MDPVSample <- function(j,r,U,V,S,X,M){#Update relative stick weights ( 2b(iii) )
 }
 
 MDPSSample <- function(i,U,W,X,Y,Th,Pres){#Update pointer variables ( 2b(iv) )
-  Trunc <- max(which(W[,X[i]]>U[i])) #Tells us the max W s_i val we can accept given that W_{s_i}>U_i
+  Trunc <- max(which(W[,X[i]]>=U[i])) #Tells us the max W s_i val we can accept given that W_{s_i}>U_i
+  #changed to geq because of zero bug
+  if ( max(W[,X[i]]-U[i]) <=0 ){ #debug loop
+    print(max(W[,X[i]]-U[i]) )
+  }
+   #there should be one of these over zero so max should remain positive.
+  #print(Trunc)
   #getting no non-missing arguments error, but how?
   prob <- sqrt(Pres[X[i]])*exp( -0.5*Pres[X[i]]*( Y[i]-Th[1:Trunc,X[i]] )^2 ) #We can point anywhere compatible with the indicator condition
   #makes a vector for each index of Theta (possible vals of s_i)
@@ -205,7 +281,7 @@ MDPXSample <- function(R,Y,Q,W,S,Th,Pres){ #eps tol, data, Qmat, V betas, S poin
   return( list("X"=X,"LLH"=LLH) )
 }
 
-MDPMLEPlot <- function(Data){#Data output of MDPPost. For now just plots MLE
+MDPMLEPlot <- function(Data){#MLE plot
   for (j in c(1:2)){
   m <- which(unlist(Data$LogLikes)==max(unlist(Data$LogLikes)))[1]
   t <- Data$Thetas[[m]][,j]
@@ -221,9 +297,10 @@ MDPMLEPlot <- function(Data){#Data output of MDPPost. For now just plots MLE
   }
 }
 
-MDPFullPlot <- function(Data)
+MDPFullPlot <- function(Data){ #Change to preprocess Data
   for (j in c(1:2)){
-    x <- seq(-5,5,0.001)
+    x <- seq(-5,5,0.01)
+    #print(x[1])
     #Unlist Data matrix
     f <- matrix(0,nrow=length(x),ncol=(length(Data$Thetas)-100))
     fup <- rep(0,length(x))
@@ -234,9 +311,9 @@ MDPFullPlot <- function(Data)
         t <- Data$Thetas[[k]][,j]
         w <- Data$StickBreaks[[k]][,j]
         tau <- Data$Precisions[[k]][j]
-        for (i in length(Data$StickBreaks[[k]][,j])){
-          f[l,k-100] <- f[l,k-100] + w[i]*( tau^(0.5)*(1/sqrt(2*pi))*exp(-0.5*tau*(x[l]-t[i])^2) )
-        }
+        for (i in c(1:length(Data$StickBreaks[[k]][,j]))) {
+          f[l,(k-100)] = f[l,(k-100)] + w[i]*( tau^(0.5)*(1/sqrt(2*pi))*exp(-0.5*tau*(x[l]-t[i])^2) )
+          }
       }
       #print(f)
       #print(length(x))
@@ -244,9 +321,15 @@ MDPFullPlot <- function(Data)
       fmean[l] <- mean(f[l,])
       fup[l] <- quantile(f[l,],0.95)
       flow[l] <- quantile(f[l,],0.05)
+      
     }
-  plot(x,fmean,col="blue")
-  lines(x,fup,col="red")
-  lines(x,flow,col="red")
+    print(x[which(fmean==max(fmean))])
+    print(max(fup))
+    ftrue <- (1/sqrt(2*pi))*exp(-(x-sign(x[which(fmean==max(fmean))]))^2)
+    plot(x,fup,col="red","l")
+    lines(x,fmean,col="blue")
+    lines(x,flow,col="red")
+    lines(x,ftrue, col="green")
+    #return(list("fmean"=fmean,"fup"=fup,"flow"=flow))
   }
-    
+}
