@@ -1,177 +1,83 @@
 MDPPost <- function(Y,M,cmu,cvar,igshape,igrate,QList,X=NULL,SMax=NULL){ #M precision cmucvar params for centre measure
   #Q list of draws from pi1 posterior eps tolerance SMax largest number of Dirichlet components allowed
+  
+  #RECOVERING PARAMETERS OF MODEL + ITERATIONS
   N <- length(Y)
+  R <- nrow(QList[[1]]) #Number of states
+  L <- length(QList) #QList is from Step 1 of cut posterior algo (implemented previously)
+  
+  #SETTING CUTOFF
   if (is.null(SMax)){
     SMax <- max( 20,floor(sqrt(N)) )
-  }
-  R <- nrow(QList[[1]]) #Number of states
-  pres <- rgamma(R,igshape,igrate) #inv variance of mixture comps
-  L <- length(QList) #QList is from Step 1 of cut posterior algo (implemented previously)
-  ThList <- vector("list",L) #Initialize with prior draws
-  WList <- vector("list",L) #Initialize with prior draws
-  LLHList <- vector("list",L)
-  PresList <- vector("list",L)
-  V <- matrix(0,nrow=SMax,ncol=R)
-  W <- matrix(0,nrow=SMax,ncol=R)
-  for (r in c(1:R) ){
-    V[,r] <- c(rbeta((SMax-1),1,(M)),1) #Prior draws for V. Make last one =1 to make a unit stick for W
-    W[,r] <- V[,r]*c(1,cumprod(1-V[,r]))[1:SMax]
-  }
-  if (is.null(X)){
-    X <- c(t(rmultinom(N,1,rep(1,R)))%*%c(1:R)) #Random init of X (Posterior MAP of pi1?)
-  }
-  S <- sample(c(1:SMax),N,replace=TRUE,prob = W[,1]) #Initialise pointers
-  S[X==2] <- sample(c(1:SMax),sum(X==2),replace = TRUE,prob=W[,2]) #Change the ones for state 2
-  #Edit initialisation to be for general # of states!
-  for ( l in c(1:L) ){
-    #Step 2a (done outside for loop for l=1 in order to intialise S)
-    if (l>1){
-      StatesLLH <- MDPXSample(R,Y,QList[[l-1]],WList[[l-1]],S,ThList[[l-1]],PresList[[l-1]])
-      X <- StatesLLH$X
-      LLHList[[l-1]] <- StatesLLH$LLH
-    }
-    
-    #Step 2bi
-    if (l==1){
-      U <- MDPUSample(W,X,S)
-    }else{
-      U <- MDPUSample(WList[[(l-1)]],X,S)  
-    }
-    
-    #Step 2bii
-    #ALSO NEED TO ADD IN PRIOR DRAWS
-    
-    if (l==1){
-      ThList[[l]] <- matrix(0,nrow=SMax,ncol=R)
-      for (r in c(1:R) ){ #Theta update S can go between 1 and SMax but won't contain most of them
-        #Only need to update those j for which s_i=j for some i
-        for (j in unique(S[X==r]) ){
-          ThList[[l]][j,r] <- MDPThSample(j,r,S,X,Y,cmu,cvar,pres)
-        }
-        ThList[[l]][-unique(S[X==r]),r] <- rnorm(SMax-length(unique(S[X==r])),cmu,sqrt(cvar))
-        #updates remaining entries with prior draws
-      }
-    }else{
-      ThList[[l]] <- matrix(0,nrow=SMax,ncol=R)
-      for (r in c(1:R) ){
-        for (j in unique(S[X==r]) ){ #go through pairs for which product in notes is non-empty
-          #(product over i s.t. X_i=r and S_i=j)
-          ThList[[l]][j,r] <- MDPThSample(j,r,S,X,Y,cmu,cvar,PresList[[l-1]])
-        }
-        ThList[[l]][-unique(S[X==r]),r] <- rnorm(SMax-length(unique(S[X==r])),cmu,sqrt(cvar))
-      }
-    }
-    
-    #UPDATE TAU
-    PresList[[l]] <- rep(0,R)
-    for (r in c(1:R) ){
-      PresList[[l]][r] <- MDPPresSample(r,S,X,Y,ThList[[l]],igshape,igrate)
-    } 
-    
-    #Step 2biii
-    for ( r in c(1:R) ){
-      for ( j in c(1:max(S[X==r])) ){ #the distinct levels which are occupied for that state
-        V[j,r] <- MDPVSample(j,r,U,V,S,X,M)
-      }
-      V[-c(1:max(S[X==r])),r] <- rbeta(SMax-max(S[X==r]),1,M) #prior draws for rest
-      V[SMax,r] <- 1
-    }
-    
-    #ALSO WANT SOME PRIOR DRAWS. DO V[-UNIQUE(S),r] (need state by state too)
-    WList[[l]] <- matrix(0,nrow = SMax ,ncol = R)
-    for (r in c(1:R) ){
-      #WList[[l]][,r]  <- V[,r]*c(1,cumprod(1-V[,r]))[1:SMax] #Stores the stick associated to most recent V update
-      WList[[l]][,r]  <- V[,r]*c(1,cumprod(1-V[1:(SMax-1),r]))[1:SMax] #try this
-      #WList[[l]][SMax,r] <- 1-sum(WList[[l]][1:(SMax-1),r]) #Ensures unit (rounding errors)
-      }
-    
-    #Step 2biv
-    for (i in c(1:N) ){ #For updating slices
-      S[i] <- MDPSSample(i,U,WList[[l]],X,Y,ThList[[l]],PresList[[l]]) #need to vectorize!
-    }
-    
-    
   }
   
-  return( list("Thetas"=ThList,"StickBreaks"=WList,"LogLikes"=LLHList,"Precisions"=PresList) ) #Then draw is sum( W_i*f(.|theta_i) )
-  #The 'empty states' can be then filled with prior draws for getting proper posterior draws
-  #actually might need to do these on the fly to be able to update X!
-}
-
-MDPPost2 <- function(Y,M,cmu,cvar,igshape,igrate,QList,X=NULL,C=10,SMax=NULL){ #M precision cmucvar params for centre measure
-  #Q list of draws from pi1 posterior eps tolerance SMax largest number of Dirichlet components allowed
-  N <- length(Y)
-  if (is.null(SMax)){
-    SMax <- max( 20,floor(sqrt(N)) )
-  }
-  R <- nrow(QList[[1]]) #Number of states
-  pres <- rgamma(R,igshape,igrate) #inv variance of mixture comps
-  L <- length(QList) #QList is from Step 1 of cut posterior algo (implemented previously)
+  #DEFINING LISTS
   ThList <- vector("list",L) #Initialize with prior draws
   WList <- vector("list",L) #Initialize with prior draws
   LLHList <- vector("list",L)
   PresList <- vector("list",L)
+  
+  #INITIALISATION (l=0)
+ 
+  pres <- rgamma(R,igshape,igrate) #inv variance of mixture comps
   V <- matrix(0,nrow=SMax,ncol=R)
   W <- matrix(0,nrow=SMax,ncol=R)
   for (r in c(1:R) ){
     V[,r] <- c(rbeta((SMax-1),1,(M)),1) #Prior draws for V. Make last one =1 to make a unit stick for W
     W[,r] <- V[,r]*c(1,cumprod(1-V[,r]))[1:SMax]
   }
-  if (is.null(X)){
+  if (is.null(X)){ #random initialisation of X if none specified
     X <- c(t(rmultinom(N,1,rep(1,R)))%*%c(1:R)) #Random init of X (Posterior MAP of pi1?)
   }
   S <- sample(c(1:SMax),N,replace=TRUE,prob = W[,1]) #Initialise pointers
   S[X==2] <- sample(c(1:SMax),sum(X==2),replace = TRUE,prob=W[,2]) #Change the ones for state 2
-  #Edit initialisation to be for general # of states!
+  
+  #SAMPLER
+  
   for ( l in c(1:L) ){
     #Step 2a (done outside for loop for l=1 in order to intialise S)
     if (l>1){
       StatesLLH <- MDPXSample(R,Y,QList[[l-1]],WList[[l-1]],S,ThList[[l-1]],PresList[[l-1]])
-      X <- StatesLLH$X
+      #X <- StatesLLH$X
       LLHList[[l-1]] <- StatesLLH$LLH
     }
     for (c in c(1:C) ){
-    #Step 2bi
+      #UPDATE SLICES
       U <- MDPUSample(W,X,S)
-    #Step 2bii
-    #ALSO NEED TO ADD IN PRIOR DRAWS
-    Th <- matrix(0,nrow=SMax,ncol=R)
+      
+      #UPDATE THETA
+      Th <- matrix(0,nrow=SMax,ncol=R)
       for (r in c(1:R) ){
+        
         for (j in unique(S[X==r]) ){ #go through pairs for which product in notes is non-empty
           #(product over i s.t. X_i=r and S_i=j)
           Th[j,r] <- MDPThSample(j,r,S,X,Y,cmu,cvar,pres)
         }
-        Th[-unique(S[X==r]),r] <- rnorm(SMax-length(unique(S[X==r])),cmu,sqrt(cvar))
+        Th[-unique(S[X==r]),r] <- rnorm(SMax-length(unique(S[X==r])),cmu,sqrt(cvar)) #PRIOR DRAWS
+      
+      
+      #UPDATE TAU
+      
+      
+        pres[r] <- MDPPresSample(r,S,X,Y,Th,igshape,igrate)
+      
+      
+      #UPDATE STICK BREAKS
+        for ( j in c(1:max(S[X==r])) ){ #the distinct levels which are occupied for that state
+          V[j,r] <- MDPVSample(j,r,U,V,S,X,M)
+        }
+        V[-c(1:max(S[X==r])),r] <- rbeta(SMax-max(S[X==r]),1,M) #prior draws for rest
+        V[SMax,r] <- 1
+        W[,r]  <- V[,r]*c(1,cumprod(1-V[1:(SMax-1),r]))[1:SMax] 
+      
+      }#END LOOP OVER R
+      
+      
+      #UPDATE POINTERS
+      for (i in c(1:N) ){ #need to vectorize!
+        S[i] <- MDPSSample(i,U,W,X,Y,Th,pres) 
       }
-    
-    #UPDATE TAU
-    
-    for (r in c(1:R) ){
-      pres[r] <- MDPPresSample(r,S,X,Y,Th,igshape,igrate)
-    } 
-    
-    #Step 2biii
-    for ( r in c(1:R) ){
-      for ( j in c(1:max(S[X==r])) ){ #the distinct levels which are occupied for that state
-        V[j,r] <- MDPVSample(j,r,U,V,S,X,M)
-      }
-      V[-c(1:max(S[X==r])),r] <- rbeta(SMax-max(S[X==r]),1,M) #prior draws for rest
-      V[SMax,r] <- 1
-    }
-    
-    for (r in c(1:R) ){
-      #WList[[l]][,r]  <- V[,r]*c(1,cumprod(1-V[,r]))[1:SMax] #Stores the stick associated to most recent V update
-      W[,r]  <- V[,r]*c(1,cumprod(1-V[1:(SMax-1),r]))[1:SMax] #try this
-      #WList[[l]][SMax,r] <- 1-sum(WList[[l]][1:(SMax-1),r]) #Ensures unit (rounding errors)
-    }
-    
-    #Step 2biv
-    for (i in c(1:N) ){ #For updating slices
-      #print(U)
-      #print(S)
-      S[i] <- MDPSSample(i,U,W,X,Y,Th,pres) #need to vectorize!
-    }
-    
+      
     }#End loop over minichain
     ThList[[l]] <- matrix(0,nrow=SMax,ncol=R)
     PresList[[l]] <- rep(0,R)
@@ -185,7 +91,6 @@ MDPPost2 <- function(Y,M,cmu,cvar,igshape,igrate,QList,X=NULL,C=10,SMax=NULL){ #
   #The 'empty states' can be then filled with prior draws for getting proper posterior draws
   #actually might need to do these on the fly to be able to update X!
 }
-
 
 MDPUSample <- function(W,X,S){ #Update slicing ( Step 2b(i) ) This is just a unif(0,Trunc) for specified trunc point
   N <- length(X)
