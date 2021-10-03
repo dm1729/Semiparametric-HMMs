@@ -1,4 +1,4 @@
-MDPPost <- function(Y,M,cmu,cvar,igshape,igrate,QList,X=NULL,SMax=NULL){ #M precision cmucvar params for centre measure
+MDPTrunc <- function(Y,M,cmu,cvar,igshape,igrate,QList,X=NULL,SMax=NULL,C=10){ #M precision cmucvar params for centre measure
   #Q list of draws from pi1 posterior eps tolerance SMax largest number of Dirichlet components allowed
   
   #RECOVERING PARAMETERS OF MODEL + ITERATIONS
@@ -6,7 +6,94 @@ MDPPost <- function(Y,M,cmu,cvar,igshape,igrate,QList,X=NULL,SMax=NULL){ #M prec
   R <- nrow(QList[[1]]) #Number of states
   L <- length(QList) #QList is from Step 1 of cut posterior algo (implemented previously)
   
-  #SETTING CUTOFF
+  #SETTING TRUNCATION LEVEL
+  if (is.null(SMax)){
+    SMax <- max( 20,floor(sqrt(N)) )
+  }
+  #DEFINING LISTS
+  ThList <- vector("list",L) #Initialize with prior draws
+  WList <- vector("list",L) #Initialize with prior draws
+  LLHList <- vector("list",L)
+  PresList <- vector("list",L)
+  
+  #INITIALISATION (l=0)
+  
+  #Initialise inverse variance from prior
+  pres <- rgamma(R,igshape,igrate) 
+
+  #Initialize stick breaks from prior
+  W <- t(gtools::rdirichlet(R,rep((M/SMax),SMax)))
+  
+  if (is.null(X)){ #random initialisation of X if none specified
+    X <- c(t(rmultinom(N,1,rep(1,R)))%*%c(1:R)) #Random init of X (Posterior MAP of pi1?)
+  }
+  #initialize pointers from prior
+  
+  S <- sample(c(1:SMax),N,replace=TRUE,prob = W[,1]) #Initialise pointers
+  S[X==2] <- sample(c(1:SMax),sum(X==2),replace = TRUE,prob=W[,2]) #Change the ones for state 2
+  
+  #Initial allocation of theta array
+  
+  Th <- matrix(0,nrow=SMax,ncol=R)
+  
+  #SAMPLER
+  
+  for ( l in c(1:L) ){
+    LLHList[[l]] = -Inf #Initialize log likelihood at -Inf
+    for (c in c(1:C) ){
+      for (r in c(1:R) ){ #Theta, Precisions vary state-by-state
+        
+        #UPDATE THETA
+        for (j in unique(S[X==r]) ){ #go through pairs for which product in notes is non-empty
+          #(product over i s.t. X_i=r and S_i=j)
+          Th[j,r] <- MDPThSample(j,r,S,X,Y,cmu,cvar,pres)
+        }
+        Th[-unique(S[X==r]),r] <- rnorm(SMax-length(unique(S[X==r])),cmu,sqrt(cvar)) #PRIOR DRAWS
+        
+        #UPDATE INVERSE VARIANCE
+        
+        pres[r] <- MDPPresSample(r,S,X,Y,Th,igshape,igrate)
+
+      }#END LOOP OVER R
+      
+      
+      #UPDATE STICK BREAKS
+      W <- MDPWSample(SMax,S,X,M,R)
+      
+      
+      #UPDATE POINTERS
+      for (i in c(1:N) ){ #need to vectorize!
+        S[i] <- MDPSSample(i,SMax,W,X,Y,Th,pres)
+      }
+      
+      
+      #UPDATE LATENTS
+      StatesLLH <- MDPXSample(R,Y,QList[[l]],W,S,Th,pres)
+      #X <- StatesLLH$X #Comment if want oracle version
+      if (StatesLLH$LLH>LLHList[[l]]){ # Likelihood of new point is higher
+        #STORE MODEL PARAMETERS FOR MLE (MAP) ALONG MINI CHAIN
+        LLHList[[l]] <- StatesLLH$LLH
+        WList[[l]] <- W
+        ThList[[l]] <- Th
+        PresList[[l]] <- pres
+      }
+      
+    }#End loop over minichain
+    
+  }
+  
+  return( list("Thetas"=ThList,"StickBreaks"=WList,"LogLikes"=LLHList,"Precisions"=PresList) ) #Then draw is sum( W_i*f(.|theta_i) )
+}
+
+MDPSlice <- function(Y,M,cmu,cvar,igshape,igrate,QList,X=NULL,SMax=NULL,C=10){ #M precision cmucvar params for centre measure
+  #Q list of draws from pi1 posterior eps tolerance SMax largest number of Dirichlet components allowed
+  
+  #RECOVERING PARAMETERS OF MODEL + ITERATIONS
+  N <- length(Y)
+  R <- nrow(QList[[1]]) #Number of states
+  L <- length(QList) #QList is from Step 1 of cut posterior algo (implemented previously)
+  
+  #SETTING TRUNCATION LEVEL
   if (is.null(SMax)){
     SMax <- max( 20,floor(sqrt(N)) )
   }
@@ -19,48 +106,53 @@ MDPPost <- function(Y,M,cmu,cvar,igshape,igrate,QList,X=NULL,SMax=NULL){ #M prec
   
   #INITIALISATION (l=0)
  
-  pres <- rgamma(R,igshape,igrate) #inv variance of mixture comps
+  #Initialise inverse variance from prior
+  pres <- rgamma(R,igshape,igrate) 
+  
+  #Initialize stick breaks from prior
   V <- matrix(0,nrow=SMax,ncol=R)
   W <- matrix(0,nrow=SMax,ncol=R)
+  
   for (r in c(1:R) ){
     V[,r] <- c(rbeta((SMax-1),1,(M)),1) #Prior draws for V. Make last one =1 to make a unit stick for W
     W[,r] <- V[,r]*c(1,cumprod(1-V[,r]))[1:SMax]
   }
+  
   if (is.null(X)){ #random initialisation of X if none specified
     X <- c(t(rmultinom(N,1,rep(1,R)))%*%c(1:R)) #Random init of X (Posterior MAP of pi1?)
   }
+  
+  #initialize pointers from prior
+  
   S <- sample(c(1:SMax),N,replace=TRUE,prob = W[,1]) #Initialise pointers
   S[X==2] <- sample(c(1:SMax),sum(X==2),replace = TRUE,prob=W[,2]) #Change the ones for state 2
+  
+  #Initial allocation of theta array
+  
+  Th <- matrix(0,nrow=SMax,ncol=R)
   
   #SAMPLER
   
   for ( l in c(1:L) ){
-    #Step 2a (done outside for loop for l=1 in order to intialise S)
-    if (l>1){
-      StatesLLH <- MDPXSample(R,Y,QList[[l-1]],WList[[l-1]],S,ThList[[l-1]],PresList[[l-1]])
-      #X <- StatesLLH$X
-      LLHList[[l-1]] <- StatesLLH$LLH
-    }
+    LLHList[[l]] = -Inf #Initialize log likelihood at -Inf
+    
     for (c in c(1:C) ){
       #UPDATE SLICES
       U <- MDPUSample(W,X,S)
       
-      #UPDATE THETA
-      Th <- matrix(0,nrow=SMax,ncol=R)
-      for (r in c(1:R) ){
+      
+      for (r in c(1:R) ){ #Theta, Precisions and Stick-breaks vary state-by-state
         
+        #UPDATE THETA
         for (j in unique(S[X==r]) ){ #go through pairs for which product in notes is non-empty
           #(product over i s.t. X_i=r and S_i=j)
           Th[j,r] <- MDPThSample(j,r,S,X,Y,cmu,cvar,pres)
         }
         Th[-unique(S[X==r]),r] <- rnorm(SMax-length(unique(S[X==r])),cmu,sqrt(cvar)) #PRIOR DRAWS
-      
-      
+
       #UPDATE TAU
-      
-      
+
         pres[r] <- MDPPresSample(r,S,X,Y,Th,igshape,igrate)
-      
       
       #UPDATE STICK BREAKS
         for ( j in c(1:max(S[X==r])) ){ #the distinct levels which are occupied for that state
@@ -72,26 +164,60 @@ MDPPost <- function(Y,M,cmu,cvar,igshape,igrate,QList,X=NULL,SMax=NULL){ #M prec
       
       }#END LOOP OVER R
       
-      
       #UPDATE POINTERS
       for (i in c(1:N) ){ #need to vectorize!
-        S[i] <- MDPSSample(i,U,W,X,Y,Th,pres) 
+        S[i] <- MDPSSampleSlice(i,U,W,X,Y,Th,pres) 
+      }
+      
+      #UPDATE LATENTS
+      StatesLLH <- MDPXSample(R,Y,QList[[l]],W,S,Th,pres)
+      #X <- StatesLLH$X #Comment if want oracle version
+      if (StatesLLH$LLH>LLHList[[l]]){ # Likelihood of new point is higher
+        #STORE MODEL PARAMETERS FOR MLE (MAP) ALONG MINI CHAIN
+        LLHList[[l]] <- StatesLLH$LLH
+        WList[[l]] <- W
+        ThList[[l]] <- Th
+        PresList[[l]] <- pres
       }
       
     }#End loop over minichain
-    ThList[[l]] <- matrix(0,nrow=SMax,ncol=R)
-    PresList[[l]] <- rep(0,R)
-    WList[[l]] <- matrix(0,nrow = SMax ,ncol = R)
-    WList[[l]] <- W
-    ThList[[l]] <- Th
-    PresList[[l]] <- pres
+
   }
   
   return( list("Thetas"=ThList,"StickBreaks"=WList,"LogLikes"=LLHList,"Precisions"=PresList) ) #Then draw is sum( W_i*f(.|theta_i) )
-  #The 'empty states' can be then filled with prior draws for getting proper posterior draws
-  #actually might need to do these on the fly to be able to update X!
 }
 
+#POINTER SAMPLE (DIRICHLET MULTINOMIAL)
+
+
+MDPSSample <- function(i,SMax,W,X,Y,Th,pres){
+  
+    #prob of each s proportional to associated p(s|W)*p(Y|s,W)
+    prob <- rep(0,SMax)
+    
+    for (s in c(1:SMax) ){
+    prob[s] <- W[s,X[i]]*(sqrt(pres[X[i]])/sqrt(2*pi))*exp(-0.5*pres[X[i]]*(Y[i]-Th[s,X[i]])^2)
+    }
+    #Update S value
+    SUpdate <- sample(c(1:SMax),1,replace=TRUE,prob=prob) #Need to update components for which X==r
+    return(SUpdate)
+}
+
+#STICK BREAK SAMPLER (DIRICHLET MULTINOMIAL)
+
+MDPWSample <- function(SMax,S,X,M,R){
+  W <- matrix(0,nrow=SMax,ncol=R)
+  for (r in c(1:R)){
+    alpha <- rep(SMax/M,SMax)
+    #increases dirichlet weight by one per unit assignment
+    #e.g. S[X==r] = (1,1,1,3,3,2) then alpha[1] <- alpha[1] +3, alpha[3] <- alpha[3] + 2 etc.
+    alpha[as.numeric(names(table(S[X==r])))]<- alpha[as.numeric(names(table(S[X==r])))]+table(S[X==r])
+    W[,r] <- gtools::rdirichlet(1,alpha) # Samples weights
+  }
+  return(W)
+}
+
+#SLICE SAMPLER
 MDPUSample <- function(W,X,S){ #Update slicing ( Step 2b(i) ) This is just a unif(0,Trunc) for specified trunc point
   N <- length(X)
   U <- runif(N) #Draws from uniform on 0 to W[s_i,X_i]
@@ -119,6 +245,8 @@ MDPPresSample <- function(r,S,X,Y,Th,igshape,igrate){
   tau <- rgamma(1,postshape,rate=postrate)
 }
 
+
+#V SAMPLES WITH SLICING
 MDPVSample <- function(j,r,U,V,S,X,M){#Update relative stick weights ( 2b(iii) )
   #Use quantile method for sampling from continuous distributions
   #Set endpoints as per pg 109 of vdV (but only looking at the relevant for each state)
@@ -149,7 +277,9 @@ MDPVSample <- function(j,r,U,V,S,X,M){#Update relative stick weights ( 2b(iii) )
   return(Vdraw)
 }
 
-MDPSSample <- function(i,U,W,X,Y,Th,Pres){#Update pointer variables ( 2b(iv) )
+
+#POINTER SAMPLE WITH SLICES
+MDPSSampleSlice <- function(i,U,W,X,Y,Th,Pres){#Update pointer variables ( 2b(iv) )
   Trunc <- max(which(W[,X[i]]>=U[i])) #Tells us the max W s_i val we can accept given that W_{s_i}>U_i
   #changed to geq because of zero bug
   if ( max(W[,X[i]]-U[i]) <=0 ){ #debug loop
@@ -185,6 +315,10 @@ MDPXSample <- function(R,Y,Q,W,S,Th,Pres){ #eps tol, data, Qmat, V betas, S poin
   }
   return( list("X"=X,"LLH"=LLH) )
 }
+
+
+
+####PLOTS###
 
 MDPMLEPlot <- function(Data){#MLE plot
   for (j in c(1:2)){
