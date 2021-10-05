@@ -228,6 +228,7 @@ MDPUSample <- function(W,X,S){ #Update slicing ( Step 2b(i) ) This is just a uni
   return(U)
 }
 
+#THETA SAMPLER
 MDPThSample <- function(j,r,S,X,Y,cmu,cvar,pres){ #Update thetas ( Step 2b(ii) )
 #Use conjugacy of base measure alpha
 suff <- sum(Y[(S==j)&(X==r)]) #The sufficient stat sum(relevant obs) appearing in the update formula
@@ -238,6 +239,7 @@ theta <- rnorm(1,postmean,sqrt(postvar))
 return(theta)
 }
 
+#PRECISION SAMPLER
 MDPPresSample <- function(r,S,X,Y,Th,igshape,igrate){
   sampsize <- sum(X==r) #effective sample size
   postshape <- igshape + (sampsize/2) #using conjugacy
@@ -364,7 +366,7 @@ MDPFullPlot <- function(Data){ #Change to preprocess Data
     }
     print(x[which(fmean==max(fmean))])
     print(max(fup))
-    ftrue <- (1/sqrt(2*pi))*exp(-(x-sign(x[which(fmean==max(fmean))]))^2)
+    ftrue <- (1/sqrt(2*pi))*exp(-0.5*(x-sign(x[which(fmean==max(fmean))]))^2)
     plot(x,fup,col="red","l")
     lines(x,fmean,col="blue")
     lines(x,flow,col="red")
