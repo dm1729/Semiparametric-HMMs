@@ -1,4 +1,4 @@
-MDPTrunc <- function(Y,M,cmu,cvar,igshape,igrate,QList,X=NULL,SMax=NULL,C=10){ #M precision cmucvar params for centre measure
+MDPTrunc <- function(Y,M,cmu,cvar,igshape,igrate,QList,Xinit=NULL,SMax=NULL,C=10){ #M precision cmucvar params for centre measure
   #Q list of draws from pi1 posterior eps tolerance SMax largest number of Dirichlet components allowed
   
   #RECOVERING PARAMETERS OF MODEL + ITERATIONS
@@ -24,9 +24,10 @@ MDPTrunc <- function(Y,M,cmu,cvar,igshape,igrate,QList,X=NULL,SMax=NULL,C=10){ #
   #Initialize stick breaks from prior
   W <- t(gtools::rdirichlet(R,rep((M/SMax),SMax)))
   
-  if (is.null(X)){ #random initialisation of X if none specified
+  if (is.null(Xinit)){ #random initialisation of X if none specified
     X <- c(t(rmultinom(N,1,rep(1,R)))%*%c(1:R)) #Random init of X (Posterior MAP of pi1?)
   }
+  
   #initialize pointers from prior
   
   S <- sample(c(1:SMax),N,replace=TRUE,prob = W[,1]) #Initialise pointers
@@ -37,13 +38,13 @@ MDPTrunc <- function(Y,M,cmu,cvar,igshape,igrate,QList,X=NULL,SMax=NULL,C=10){ #
   Th <- matrix(0,nrow=SMax,ncol=R)
   
   #SAMPLER
-  
   for ( l in c(1:L) ){
-    LLHList[[l]] = -Inf #Initialize log likelihood at -Inf
+    LLH = -Inf #Initialize log likelihood at -Inf
+    X <- Xinit #for l=1 returned from input. for l>1 returned from previous loop
     for (c in c(1:C) ){
       for (r in c(1:R) ){ #Theta, Precisions vary state-by-state
         
-        #UPDATE THETA
+        #UPDATE THETA (COMPONENT MEANS)
         for (j in unique(S[X==r]) ){ #go through pairs for which product in notes is non-empty
           #(product over i s.t. X_i=r and S_i=j)
           Th[j,r] <- MDPThSample(j,r,S,X,Y,cmu,cvar,pres)
@@ -61,18 +62,19 @@ MDPTrunc <- function(Y,M,cmu,cvar,igshape,igrate,QList,X=NULL,SMax=NULL,C=10){ #
       W <- MDPWSample(SMax,S,X,M,R)
       
       
-      #UPDATE POINTERS
-      for (i in c(1:N) ){ #need to vectorize!
-        S[i] <- MDPSSample(i,SMax,W,X,Y,Th,pres)
+      #UPDATE LATENT CHAIN X AND LATENT POINTERS S
+      Latents <- MDPLatentSample(Y,QList[[l]],W,S,Th,pres)
+      X <- Latents$X #Comment if want oracle version
+      S <- Latents$S
+      
+      if (Latents$LLH>LLH){ # Likelihood of new point is higher
+        #STORE MODEL PARAMETERS FOR MLE (MAP) ALONG MINI CHAIN
+        Xinit <- Latents$X
+        LLH <- Latents$LLH #update LLH
       }
       
-      
-      #UPDATE LATENTS
-      StatesLLH <- MDPXSample(R,Y,QList[[l]],W,S,Th,pres)
-      #X <- StatesLLH$X #Comment if want oracle version
-      if (StatesLLH$LLH>LLHList[[l]]){ # Likelihood of new point is higher
-        #STORE MODEL PARAMETERS FOR MLE (MAP) ALONG MINI CHAIN
-        LLHList[[l]] <- StatesLLH$LLH
+      if (c==C){ #stores final draw of chain
+        LLHList[[l]] <- Latents$LLH
         WList[[l]] <- W
         ThList[[l]] <- Th
         PresList[[l]] <- pres
@@ -185,6 +187,51 @@ MDPSlice <- function(Y,M,cmu,cvar,igshape,igrate,QList,X=NULL,SMax=NULL,C=10){ #
   }
   
   return( list("Thetas"=ThList,"StickBreaks"=WList,"LogLikes"=LLHList,"Precisions"=PresList) ) #Then draw is sum( W_i*f(.|theta_i) )
+}
+
+#LATENT SAMPLER (STATES AND MIXTURE ALLOCATIONS)
+
+MDPLatentSample <- function(Y,Q,W,S,Th,Pres){ #eps tol, data, Qmat, V betas, S pointers, Th locations
+  C <- nrow(W) #(Recovers SMax)
+  R <- ncol(W) #Recovers R
+  Q1 <- Q1set(Q,W) #sets transition matrix for bivariate state space
+  pi <- abs(eigen(t(Q1))$vectors[,1])/sum(abs(eigen(t(Q1))$vectors[,1])) #stationary dist
+  #first state X=1 S=1 second state X=2 S=1 third state X=1 S=2 etc.
+  dist <- distributionSet(dis="NORMAL",mean = as.vector(t(Th)),var = rep(Pres,C) )
+  HMM <- HMMSet(pi,Q1,dist)
+  F <- forwardBackward(HMM,Y) #stores forwardbackward variables
+  G <- F$Gamma # Marginal probabilities of X_t=i given data, params
+  #Debugging: G seems to well reflect pi in the makeup of hidden states
+  Xsi <- F$Xsi #List of T, Xsi[[t]]_{rs}=Xsi_{rs}(t)=P(X_t=r,X_{t+1}=s | Y,Param)
+  #Draw X_1,...,X_T sequentially
+  LLH <- F$LLH #Gives log likelihood for input parameters
+  
+  X <- rep(0,length(Y))
+  X[1] <- sample(R*C,1,prob = G[1,])
+  for (i in (2:length(Y))){
+    P <- Xsi[[(i-1)]][X[(i-1)],]/G[(i-1),X[(i-1)]] #Proposal for drawing (X_i,s_i) | (X_{i-1},s_{i-1})
+    X[i] <- sample(R*C,1,prob = P)
+    #X[i] <- c(1:R)%*%rmultinom(1,1,P) #dot product extras 1,..,R from indicator
+  }
+  Xdraws <- Vectorize(mod)(X,R) #gives corresponding latent chain states
+  Sdraws <- floor((X-1)/R)+1 #gives corresponding mixture allocation
+  return( list("X"=Xdraws,"S"=Sdraws,"LLH"=LLH) )
+}
+
+Q1set <- function(Q,W){ #W is SMax by R
+  R <- ncol(W)
+  SMax <- nrow(W)
+  Q1 <- matrix(0,nrow=R*SMax,ncol=R*SMax) #allocates enlarged transition matrix
+  for (i in c(1:R*SMax)){ #find a better way of doing this
+    for (j in c(1:R*SMax)){
+      Q1[i,j] <- Q[mod(i,R),mod(j,R)]*W[floor((j-1)/R)+1,mod(j,R)] # = P(X_{i+1}|X_i)*P(S_{i+1}|X_{i+1})
+    }
+  }
+  return(Q1)
+}
+
+mod <- function(i,R){ #returns i mod R but R=R rather than R=0
+  return( (i+(R-1))%%R+1 )
 }
 
 #POINTER SAMPLE (DIRICHLET MULTINOMIAL)
