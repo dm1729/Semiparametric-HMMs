@@ -104,6 +104,7 @@ MDPPresSample <- function(r,S,X,Y,Th,igshape,igrate){
   postshape <- igshape + (sampsize/2) #using conjugacy
   postrate <- igrate + 0.5*sum( (Y[X==r]-Th[S[X==r],r])^2 )
   tau <- rgamma(1,postshape,rate=postrate)
+  return(tau)
 }
 
 #STICK BREAK SAMPLER (DIRICHLET MULTINOMIAL)
