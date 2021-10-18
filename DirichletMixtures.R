@@ -41,8 +41,17 @@ MDPTrunc <- function(Y,M,cmu,cvar,igshape,igrate,QList,Xinit=NULL,SMax=NULL,C=10
   for ( l in c(1:L) ){
     LLH = -Inf #Initialize log likelihood at -Inf
     X <- Xinit #for l=1 returned from input. for l>1 returned from previous loop
+    
     for (c in c(1:C) ){
       for (r in c(1:R) ){ #Theta, Precisions vary state-by-state
+        
+        #DEBUGGING
+        #print(Th)
+        #print(X)
+        #print(r)
+        #print(C)
+        #print(unique(S[X==r]))
+        
         
         #UPDATE THETA (COMPONENT MEANS)
         for (j in unique(S[X==r]) ){ #go through pairs for which product in notes is non-empty
@@ -63,15 +72,16 @@ MDPTrunc <- function(Y,M,cmu,cvar,igshape,igrate,QList,Xinit=NULL,SMax=NULL,C=10
       
       
       #UPDATE LATENT CHAIN X AND LATENT POINTERS S
-      Latents <- MDPLatentSample(Y,QList[[l]],W,S,Th,pres)
-      X <- Latents$X #Comment if want oracle version
+      Latents <- MDPLatentSample(Y,QList[[l]],W,Th,pres)
+      #X <- Latents$X #Comment if want oracle version
       S <- Latents$S
       
-      if (Latents$LLH>LLH){ # Likelihood of new point is higher
+      
+      #if (Latents$LLH>LLH){ # Likelihood of new point is higher
         #STORE MODEL PARAMETERS FOR MLE (MAP) ALONG MINI CHAIN
-        Xinit <- Latents$X
-        LLH <- Latents$LLH #update LLH
-      }
+        #Xinit <- Latents$X
+        #LLH <- Latents$LLH #update LLH
+      #}
       
       if (c==C){ #stores final draw of chain
         LLHList[[l]] <- Latents$LLH
@@ -123,13 +133,13 @@ MDPWSample <- function(SMax,S,X,M,R){
 
 #LATENT SAMPLER (STATES AND MIXTURE ALLOCATIONS)
 
-MDPLatentSample <- function(Y,Q,W,S,Th,Pres){ #eps tol, data, Qmat, V betas, S pointers, Th locations
+MDPLatentSample <- function(Y,Q,W,Th,Pres){ #eps tol, data, Qmat, V betas, S pointers, Th locations
   C <- nrow(W) #(Recovers SMax)
   R <- ncol(W) #Recovers R
   Q1 <- Q1set(Q,W) #sets transition matrix for bivariate state space
   pi <- abs(eigen(t(Q1))$vectors[,1])/sum(abs(eigen(t(Q1))$vectors[,1])) #stationary dist
   #first state X=1 S=1 second state X=2 S=1 third state X=1 S=2 etc.
-  dist <- distributionSet(dis="NORMAL",mean = as.vector(t(Th)),var = rep(Pres,C) )
+  dist <- distributionSet(dis="NORMAL",mean = as.vector(t(Th)),var = rep(Pres^(-1),C) )
   HMM <- HMMSet(pi,Q1,dist)
   F <- forwardBackward(HMM,Y) #stores forwardbackward variables
   G <- F$Gamma # Marginal probabilities of X_t=i given data, params
@@ -148,6 +158,7 @@ MDPLatentSample <- function(Y,Q,W,S,Th,Pres){ #eps tol, data, Qmat, V betas, S p
   Xdraws <- Vectorize(mod)(X,R) #gives corresponding latent chain states
   Sdraws <- floor((X-1)/R)+1 #gives corresponding mixture allocation
   return( list("X"=Xdraws,"S"=Sdraws,"LLH"=LLH) )
+  #return(X)
 }
 
 #AUXILIARY FUNCTIONS FOR LATENT SAMPLER
@@ -156,8 +167,8 @@ Q1set <- function(Q,W){ #W is SMax by R
   R <- ncol(W)
   SMax <- nrow(W)
   Q1 <- matrix(0,nrow=R*SMax,ncol=R*SMax) #allocates enlarged transition matrix
-  for (i in c(1:R*SMax)){ #find a better way of doing this
-    for (j in c(1:R*SMax)){
+  for (i in c(1:(R*SMax)) ){ #find a better way of doing this
+    for (j in c(1:(R*SMax)) ){
       Q1[i,j] <- Q[mod(i,R),mod(j,R)]*W[floor((j-1)/R)+1,mod(j,R)] # = P(X_{i+1}|X_i)*P(S_{i+1}|X_{i+1})
     }
   }
