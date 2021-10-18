@@ -33,13 +33,12 @@ HmmMCMC2 <- function(M,N,D,mu,sig2,I,Y=NULL,X0=NULL){ #D distinct data sets, N n
     means <- mu[(R*d-1):(R*d)]
     vars <- sig2[(R*d-1):(R*d)]
     Link <- MyLinkAB( min(means) - 2*sqrt(sig2 [ which(means==min(means))[1] ] ) , max(means) + 2*sqrt( sig2[ which( means==max(means) )[1] ] ) )
-    e
     if (is.null(Y)){#can instead specify data set if don't want to generate new one
-    Sims <- SimulateHMMNorm( Q,means,vars,max(N) ) #Simulates a full data set for the highest N valu
-    Y <- Sims$obs
+      Sims <- SimulateHMMNorm( Q,means,vars,max(N) ) #Simulates a full data set for the highest N valu
+      Y <- Sims$obs
     }
     if (is.null(X0)){
-    X0 <- Sims$states
+      X0 <- Sims$states
     }
     for (j in c(1:S)){
       for (i in c(1:B)){
@@ -87,7 +86,7 @@ UnstoreLatent <- function(Data){
   return(Data)
 }
   
-MCMCPi1PlotsQ <- function(Data,b,s,Q=NULL){ #Data frame e.g. ExperimentsN500 , N1000 etc. b burn in vector. Q true
+MCMCPi1PlotsQ <- function(Data,b,s,Q=NULL,plotrow=2,plotcol=1){ #Data frame e.g. ExperimentsN500 , N1000 etc. b burn in vector. Q true
   L <- length(Data$Outputs)
   if (is.null(Q)){
     Q <- 0*Data$Outputs[[L]]$QList[[1]] #Gives 0 matrix of correct size
@@ -97,7 +96,7 @@ MCMCPi1PlotsQ <- function(Data,b,s,Q=NULL){ #Data frame e.g. ExperimentsN500 , N
   M <- vector("list",L)
   V <- vector("list",L)
   SD <- vector("list",L)
-  par(mfrow=c(2,5))
+  par(mfrow=c(plotrow,plotcol))
   for (E in c(1:L) ){
     QList <- Data$Outputs[[E]]$QList
     WList <- Data$Outputs[[E]]$WList
@@ -135,11 +134,11 @@ MCMCPi1PlotsQ <- function(Data,b,s,Q=NULL){ #Data frame e.g. ExperimentsN500 , N
     }
     }
     #hist(EntryDraws(ExperimentsQThin[[E]],1,1),breaks=seq(0,1,0.0125),main = paste("Q11 Histogram in Experiment #",E,"of", L,"N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(1,1)")
-    hist(EntryDraws(ExperimentsQThin[[E]],1,1),breaks=seq(0,1,0.0125),main = paste("Q11 Histogram for N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(1,1)")
+    hist(EntryDraws(ExperimentsQThin[[E]],1,1),breaks=seq(0,1,0.00125),main = paste("Q11 Histogram for N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(1,1)")
     lines(c(M[[E]][1,1],M[[E]][1,1]),c(0,10000),col="blue")
     lines(c(PermutedTrueQ[1,1],PermutedTrueQ[1,1]),c(0,10000),col="red")
     #hist(EntryDraws(ExperimentsQThin[[E]],2,2),breaks=seq(0,1,0.0125),main = paste("Q22 Histogram in Experiment #",E,"of", L,"N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(2,2)")
-    hist(EntryDraws(ExperimentsQThin[[E]],2,2),breaks=seq(0,1,0.0125),main = paste("Q22 Histogram for N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(2,2)")
+    hist(EntryDraws(ExperimentsQThin[[E]],2,2),breaks=seq(0,1,0.00125),main = paste("Q22 Histogram for N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(2,2)")
     lines(c(M[[E]][2,2],M[[E]][2,2]),c(0,10000),col="blue")
     lines(c(PermutedTrueQ[2,2],PermutedTrueQ[2,2]),c(0,10000),col="red")
   }

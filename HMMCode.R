@@ -168,7 +168,6 @@ QWPosteriorSomeLatent <- function(Y,R,M,b=0,I,Adir=1,Bdir=1,X=NULL){ # Y data R 
   LQ <- vector("list",I) #Gets a list ready to store the draws from Q, L[[i]] is draw i of Q
   LW <- vector("list",I)
   LLLH <- vector("list",I) #for storing log likelihood
-  LX <- vector("list",I)
   for (i in c(1:I)){ #Here we will store draws on Q and W
     LQ[[i]] <- QGibbs(X,A)
     LW[[i]] <- WGibbs(X,Y,B)
@@ -176,10 +175,10 @@ QWPosteriorSomeLatent <- function(Y,R,M,b=0,I,Adir=1,Bdir=1,X=NULL){ # Y data R 
     LLLH[[i]] <- SamplesLLH$LLH
     X <- SamplesLLH$X
     if (LLLH[[i]]==max(unlist(LLLH)[1:i]) ){ #store latents when encountering new maximum for likelihood
-      LX[[i]] <- X
+      XMLE <- list("Iteration Number"=i,"states"=X)
     }
   }
-  return(list("QList"=LQ,"WList"=LW,"LLHList"=LLLH,"XList"=LX))
+  return(list("QList"=LQ,"WList"=LW,"LLHList"=LLLH,"XMLE"=XMLE))
 }
 
 QWPosteriorFixState <- function(Y,R,M,b,I,X=NULL){ # Y data R states M bins b burn-in I iterations
