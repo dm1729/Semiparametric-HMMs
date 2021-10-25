@@ -1,6 +1,8 @@
 MDPTrunc <- function(Y,M,cmu,cvar,igshape,igrate,QList,Xinit=NULL,SMax=NULL,C=10){ #M precision cmucvar params for centre measure
   #Q list of draws from pi1 posterior eps tolerance SMax largest number of Dirichlet components allowed
   
+  start_time=Sys.time()
+  
   #RECOVERING PARAMETERS OF MODEL + ITERATIONS
   N <- length(Y)
   R <- nrow(QList[[1]]) #Number of states
@@ -25,13 +27,13 @@ MDPTrunc <- function(Y,M,cmu,cvar,igshape,igrate,QList,Xinit=NULL,SMax=NULL,C=10
   W <- t(gtools::rdirichlet(R,rep((M/SMax),SMax)))
   
   if (is.null(Xinit)){ #random initialisation of X if none specified
-    X <- c(t(rmultinom(N,1,rep(1,R)))%*%c(1:R)) #Random init of X (Posterior MAP of pi1?)
+    Xinit <- c(t(rmultinom(N,1,rep(1,R)))%*%c(1:R)) #Random init of X (Posterior MAP of pi1?)
   }
   
   #initialize pointers from prior
   
   S <- sample(c(1:SMax),N,replace=TRUE,prob = W[,1]) #Initialise pointers
-  S[X==2] <- sample(c(1:SMax),sum(X==2),replace = TRUE,prob=W[,2]) #Change the ones for state 2
+  S[Xinit==2] <- sample(c(1:SMax),sum(Xinit==2),replace = TRUE,prob=W[,2]) #Change the ones for state 2
   
   #Initial allocation of theta array
   
@@ -73,7 +75,7 @@ MDPTrunc <- function(Y,M,cmu,cvar,igshape,igrate,QList,Xinit=NULL,SMax=NULL,C=10
       
       #UPDATE LATENT CHAIN X AND LATENT POINTERS S
       Latents <- MDPLatentSample(Y,QList[[l]],W,Th,pres)
-      #X <- Latents$X #Comment if want oracle version
+      X <- Latents$X #Comment if want oracle version
       S <- Latents$S
       
       
@@ -94,7 +96,112 @@ MDPTrunc <- function(Y,M,cmu,cvar,igshape,igrate,QList,Xinit=NULL,SMax=NULL,C=10
     
   }
   
-  return( list("Thetas"=ThList,"StickBreaks"=WList,"LogLikes"=LLHList,"Precisions"=PresList) ) #Then draw is sum( W_i*f(.|theta_i) )
+  end_time=Sys.time()
+  
+  return( list("Thetas"=ThList,"StickBreaks"=WList,"LogLikes"=LLHList,"Precisions"=PresList,"Elapsed"=end_time-start_time) ) #Then draw is sum( W_i*f(.|theta_i) )
+}
+
+MDPTruncStore <- function(Y,M,cmu,cvar,igshape,igrate,QList,Xinit=NULL,SMax=NULL,C=10){ #M precision cmucvar params for centre measure
+  #Q list of draws from pi1 posterior eps tolerance SMax largest number of Dirichlet components allowed
+  #STORES MINICHAIN DRAWS
+  start_time=Sys.time()
+  #RECOVERING PARAMETERS OF MODEL + ITERATIONS
+  N <- length(Y)
+  R <- nrow(QList[[1]]) #Number of states
+  L <- length(QList) #QList is from Step 1 of cut posterior algo (implemented previously)
+  
+  #SETTING TRUNCATION LEVEL
+  if (is.null(SMax)){
+    SMax <- max( 20,floor(sqrt(N)) )
+  }
+  #DEFINING LISTS
+  ThList <- vector("list",L*C) #Initialize with prior draws
+  WList <- vector("list",L*C) #Initialize with prior draws
+  LLHList <- vector("list",L*C)
+  PresList <- vector("list",L*C)
+  #XList <- vector("list",L*C)
+  
+  #INITIALISATION (l=0)
+  
+  #Initialise inverse variance from prior
+  pres <- rgamma(R,igshape,igrate) 
+  
+  #Initialize stick breaks from prior
+  W <- t(gtools::rdirichlet(R,rep((M/SMax),SMax)))
+  
+  if (is.null(Xinit)){ #random initialisation of X if none specified
+    Xinit <- c(t(rmultinom(N,1,rep(1,R)))%*%c(1:R)) #Random init of X (Posterior MAP of pi1?)
+  }
+  
+  #initialize pointers from prior
+  
+  S <- sample(c(1:SMax),N,replace=TRUE,prob = W[,1]) #Initialise pointers
+  S[X==2] <- sample(c(1:SMax),sum(X==2),replace = TRUE,prob=W[,2]) #Change the ones for state 2
+  
+  #Initial allocation of theta array
+  
+  Th <- matrix(0,nrow=SMax,ncol=R)
+  
+  #SAMPLER
+  
+  e <- 1
+  for ( l in c(1:L) ){
+    LLH = -Inf #Initialize log likelihood at -Inf
+    X <- Xinit #for l=1 returned from input. for l>1 returned from previous loop
+    
+    for (c in c(1:C) ){
+      for (r in c(1:R) ){ #Theta, Precisions vary state-by-state
+        
+        #DEBUGGING
+        #print(Th)
+        #print(X)
+        #print(r)
+        #print(C)
+        #print(unique(S[X==r]))
+        
+        
+        #UPDATE THETA (COMPONENT MEANS)
+        for (j in unique(S[X==r]) ){ #go through pairs for which product in notes is non-empty
+          #(product over i s.t. X_i=r and S_i=j)
+          Th[j,r] <- MDPThSample(j,r,S,X,Y,cmu,cvar,pres)
+        }
+        Th[-unique(S[X==r]),r] <- rnorm(SMax-length(unique(S[X==r])),cmu,sqrt(cvar)) #PRIOR DRAWS
+        
+        #UPDATE INVERSE VARIANCE
+        
+        pres[r] <- MDPPresSample(r,S,X,Y,Th,igshape,igrate)
+        
+      }#END LOOP OVER R
+      
+      
+      #UPDATE STICK BREAKS
+      W <- MDPWSample(SMax,S,X,M,R)
+      
+      
+      #UPDATE LATENT CHAIN X AND LATENT POINTERS S
+      Latents <- MDPLatentSample(Y,QList[[l]],W,Th,pres)
+      X <- Latents$X #Comment if want oracle version
+      S <- Latents$S
+      
+      
+      #if (Latents$LLH>LLH){ # Likelihood of new point is higher
+      #STORE MODEL PARAMETERS FOR MLE (MAP) ALONG MINI CHAIN
+      #Xinit <- Latents$X
+      #LLH <- Latents$LLH #update LLH
+      #}
+      LLHList[[e]] <- Latents$LLH
+      WList[[e]] <- W
+      ThList[[e]] <- Th
+      PresList[[e]] <- pres
+      #XList[[e]] <- X
+      
+      e <- e+1
+      
+    }#End loop over minichain
+    
+  }
+  end_time=Sys.time()
+  return( list("Thetas"=ThList,"StickBreaks"=WList,"LogLikes"=LLHList,"Precisions"=PresList,"XList"=X,"Elapsed"=end_time-start_time) ) #Then draw is sum( W_i*f(.|theta_i) )
 }
 
 #THETA SAMPLER
@@ -181,22 +288,27 @@ mod <- function(i,R){ #returns i mod R but R=R rather than R=0
 
 #PLOTTER FOR OUTPUT OF MDPTRUNC
 
-MDPFullPlot <- function(Data){ #Change to preprocess Data
+MDPFullPlot <- function(Data,IndexSet=NULL){ #Change to preprocess Data
+  if (is.null(IndexSet)){
+    IndexSet <- c(1,length(Data$Thetas))
+  }
   for (j in c(1:2)){
     x <- seq(-5,5,0.01)
     #print(x[1])
     #Unlist Data matrix
-    f <- matrix(0,nrow=length(x),ncol=(length(Data$Thetas)-100))
+    f <- matrix(0,nrow=length(x),ncol=length(IndexSet))
     fup <- rep(0,length(x))
     flow <- rep(0,length(x))
     fmean <- rep(0,length(x))
     for (l in c(1:length(x)) ){
-      for (k in c(101:length(Data$Thetas))){
+      n <- 0
+      for (k in IndexSet ){
+        n <- n + 1
         t <- Data$Thetas[[k]][,j]
         w <- Data$StickBreaks[[k]][,j]
         tau <- Data$Precisions[[k]][j]
         for (i in c(1:length(Data$StickBreaks[[k]][,j]))) {
-          f[l,(k-100)] = f[l,(k-100)] + w[i]*( tau^(0.5)*(1/sqrt(2*pi))*exp(-0.5*tau*(x[l]-t[i])^2) )
+          f[l,n] = f[l,n] + w[i]*( tau^(0.5)*(1/sqrt(2*pi))*exp(-0.5*tau*(x[l]-t[i])^2) )
         }
       }
       #print(f)
@@ -209,7 +321,7 @@ MDPFullPlot <- function(Data){ #Change to preprocess Data
     }
     print(x[which(fmean==max(fmean))])
     print(max(fup))
-    ftrue <- (1/sqrt(2*pi))*exp(-0.5*(x-sign(x[which(fmean==max(fmean))]))^2)
+    ftrue <- (1/sqrt(2*pi)*10)*exp(-0.5*100*(x-sign(x[which(fmean==max(fmean))]))^2)
     plot(x,fup,col="red","l")
     lines(x,fmean,col="blue")
     lines(x,flow,col="red")
