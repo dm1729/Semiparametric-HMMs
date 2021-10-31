@@ -25,13 +25,14 @@ MDPTrunc <- function(Y,M,cmu,cvar,igshape,igrate,QList,Xinit=NULL,SMax=NULL,C=10
   W <- t(gtools::rdirichlet(R,rep((M/SMax),SMax)))
   
   if (is.null(Xinit)){ #random initialisation of X if none specified
-    X <- c(t(rmultinom(N,1,rep(1,R)))%*%c(1:R)) #Random init of X (Posterior MAP of pi1?)
+    Xinit <- c(t(rmultinom(N,1,rep(1,R)))%*%c(1:R)) #Random init of X (Posterior MAP of pi1?)
   }
   
   #initialize pointers from prior
   
+  
   S <- sample(c(1:SMax),N,replace=TRUE,prob = W[,1]) #Initialise pointers
-  S[X==2] <- sample(c(1:SMax),sum(X==2),replace = TRUE,prob=W[,2]) #Change the ones for state 2
+  S[Xinit==2] <- sample(c(1:SMax),sum(Xinit==2),replace = TRUE,prob=W[,2]) #Change the ones for state 2
   
   #Initial allocation of theta array
   
@@ -73,7 +74,7 @@ MDPTrunc <- function(Y,M,cmu,cvar,igshape,igrate,QList,Xinit=NULL,SMax=NULL,C=10
       
       #UPDATE LATENT CHAIN X AND LATENT POINTERS S
       Latents <- MDPLatentSample(Y,QList[[l]],W,Th,pres)
-      #X <- Latents$X #Comment if want oracle version
+      X <- Latents$X #Comment if want oracle version
       S <- Latents$S
       
       
