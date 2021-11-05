@@ -1,8 +1,8 @@
-install.packages("RHmm", repos="http://R-Forge.R-project.org")
-install.packages("gtools")
-require(RHmm)
-require(gtools)
+library(MASS)
+library(nlme)
+library(gtools)
 source('DirichletMixtures.R')
+source('RHmm.R')
 Inputs <- readRDS("Inputs.Rda")
 Outputs <- vector("list",length = length(Inputs) )
 for ( i in c(1:length(Inputs)) ){
