@@ -3,6 +3,7 @@ library(nlme)
 library(gtools)
 source('DirichletMixtures.R')
 source('RHmm.R')
+source('RHmm-internals.R')
 Inputs <- readRDS("Inputs.Rda")
 Outputs <- vector("list",length = length(Inputs) )
 for ( i in c(1:length(Inputs)) ){
