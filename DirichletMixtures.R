@@ -291,7 +291,7 @@ mod <- function(i,R){ #returns i mod R but R=R rather than R=0
 
 MDPFullPlot <- function(Data,IndexSet=NULL){ #Change to preprocess Data
   if (is.null(IndexSet)){
-    IndexSet <- c(1,length(Data$Thetas))
+    IndexSet <- c(1:length(Data$Thetas))
   }
   for (j in c(1:2)){
     x <- seq(-5,5,0.01)
@@ -322,11 +322,136 @@ MDPFullPlot <- function(Data,IndexSet=NULL){ #Change to preprocess Data
     }
     print(x[which(fmean==max(fmean))])
     print(max(fup))
-    ftrue <- (1/sqrt(2*pi)*10)*exp(-0.5*100*(x-sign(x[which(fmean==max(fmean))]))^2)
-    plot(x,fup,col="red","l")
+    ftrue <- (1/sqrt(2*pi)*1)*exp(-0.5*1*(x-sign(x[which(fmean==max(fmean))]))^2)
+    plot(x,ftrue,col="green","l")
     lines(x,fmean,col="blue")
     lines(x,flow,col="red")
-    lines(x,ftrue, col="green")
+    lines(x,fup, col="red")
     #return(list("fmean"=fmean,"fup"=fup,"flow"=flow))
   }
+}
+
+SmoothingPi2 <- function(Pi2In,Pi2Out){ #Pi2 in contains data and Q, Pi2Out contains emissions
+  
+  I <- length(Pi2Out$Thetas) #should also be length of QThin
+  Y <- Pi2In$Y
+  M <- floor(sqrt(length(Y)))
+  SmoothMat <- matrix(0,nrow = I, ncol = length(Y))
+  #print(SmoothMat)
+  for (i in c(1:I)){
+    #print(i)
+    Q <- Pi2In$QList[[i]]
+    pi <- abs(eigen(t(Q))$vectors[,1])/sum(abs(eigen(t(Q))$vectors[,1]))
+    distr <- distributionSet(dis="MIXTURE",mean=list(Pi2Out$Thetas[[i]][,1],Pi2Out$Thetas[[i]][,2]),var = list(rep(Pi2Out$Precisions[[i]][1],M),rep(Pi2Out$Precisions[[i]][2],M)), proportion = list(Pi2Out$StickBreaks[[i]][,1],Pi2Out$StickBreaks[[i]][,2]) )
+    HMM <- HMMSet(pi,Q,distr)
+    a <- forwardBackward(HMM,Y)$Gamma[,1]
+    #print(a)
+    #print(SmoothMat[i,])
+    SmoothMat[i,] <- a #P(X=0|data)
+  }
+  return(SmoothMat) #each row gives the vector P(X_k=1|data) for k=1,...,N=length(Y)
+}
+
+SmoothingPi1 <- function(Pi1Data,Index){ #Pi2 in contains data and Q, Pi2Out contains emissions
+  I <- length(Pi2Out$Thetas) #should also be length of QThin
+  Y <- Pi1Data$Inputs[[Index]]$Y
+  SmoothMat <- matrix(0,nrow = I, ncol = length(Y))
+  #print(SmoothMat)
+  for (i in c(1:I)){
+    #print(i)
+    Q <- Pi1$QList[[i]]
+    pi <- abs(eigen(t(Q))$vectors[,1])/sum(abs(eigen(t(Q))$vectors[,1]))
+    #distr <- distributionSet
+    HMM <- HMMSet(pi,Q,distr)
+    a <- forwardBackward(HMM,Y)$Gamma[,1]
+    #print(a)
+    #print(SmoothMat[i,])
+    SmoothMat[i,] <- a #P(X=0|data)
+  }
+  return(SmoothMat) #each row gives the vector P(X_k=1|data) for k=1,...,N=length(Y)
+}
+
+TrueSmoothing <- function(Y,Q=NULL,means=NULL,vars=NULL){ #takes about 0.002 seconds
+  a <- Sys.time()
+  if (is.null(Q) ){
+    Q <- t(matrix(c(0.7,0.3,0.2,0.8),2,2))
+  }
+  if (is.null(means)){
+    means <- c(-1,1)
+  }
+  if (is.null(vars)){
+    vars <- c(1,1)
+  }
+  pi <- abs(eigen(t(Q))$vectors[,1])/sum(abs(eigen(t(Q))$vectors[,1]))
+  distr <- distributionSet(dis="NORMAL",means,vars)
+  HMM <- HMMSet(pi,Q,distr)
+  Smooth <- forwardBackward(HMM,Y)$Gamma[,1] #P(X=0|data)
+  elapsed <- Sys.time() - a
+  return(Smooth)
+}
+
+SmoothingPlot <- function(kvec,SmoothMat,TrueSmooth,swap=FALSE){ #index k, returns P(X_k=1)
+  if (swap){
+    TrueSmooth <- 1-TrueSmooth
+  }
+  for (k in kvec){
+  SmoothDraws <- SmoothMat[,k] #as many entries as iterations of Pi2
+  Upper <- quantile(SmoothDraws,0.95)
+  Lower <- quantile(SmoothDraws,0.05)
+  hist(SmoothDraws,breaks=seq(0,1,0.025),main=paste("Conditional probability of state ",paste(k),"being equal 1, given N=",paste(length(TrueSmooth)),"observations"))
+  lines(c(TrueSmooth[k],TrueSmooth[k]),c(0,10000),col="green")
+  print(TrueSmooth[k])
+  lines(c(Upper,Upper),c(0,10000),col="red")
+  print(Upper)
+  lines(c(Lower,Lower),c(0,10000),col="red")
+  print(Lower)
+  }
+}
+
+ConfCoverage <- function(SmoothMat,TrueSmooth,swap = FALSE){
+  Count <- 0
+  if (swap){
+    TrueSmooth <- 1-TrueSmooth
+  }
+  for (k in c(1:length(TrueSmooth))){
+    SmoothDraws <- SmoothMat[,k] #as many entries as iterations of Pi2
+    Upper <- quantile(SmoothDraws,0.95)
+    Lower <- quantile(SmoothDraws,0.05)
+    if (Lower < TrueSmooth[k] & TrueSmooth[k] < Upper){
+      Count <- Count+1
+    }
+  }
+  Coverage <- Count/length(TrueSmooth)
+  return(Coverage)
+}
+
+ErrorPlot <- function(SmoothMat,TrueSmooth,Input,swap = FALSE){ #index k, returns P(X_k=1)
+  Err = 0*TrueSmooth
+  if (swap){
+    TrueSmooth <- 1-TrueSmooth
+  }
+  for (k in c(1:length(TrueSmooth))){
+    SmoothDraws <- SmoothMat[,k] #as many entries as iterations of Pi2
+    Err[k] = abs(TrueSmooth[k]-mean(SmoothDraws))
+    
+  }
+  plot(c(1:k),Err,xlab="Hidden state index",ylab="Absolute error in estimating hidden state with given index")
+  #hist(Err,breaks=seq(0,1,0.025),main=paste("Absolute difference between posterior mean prob. and true prob for N=",length(TrueSmooth)))
+}
+
+ClassificationLoss <- function(SmoothMat,TrueSmooth,swap=TRUE){
+  C <- 0
+  if (swap){
+    TrueSmooth <- 1-TrueSmooth
+  }
+  for (k in c(1:length(TrueSmooth))){
+    SmoothDraws <- SmoothMat[,k] #as many entries as iterations of Pi2
+    if (mean(SmoothDraws)<0.5 & TrueSmooth[k]<0.5){
+      C = C+1
+    }
+    if (mean(SmoothDraws)>=0.5 & TrueSmooth[k]>=0.5){
+      C = C+1
+    }
+  }
+  return(C/length(TrueSmooth))
 }
