@@ -42,7 +42,7 @@ MDPTrunc <- function(Y,M,cmu,cvar,igshape,igrate,QList,Xinit=NULL,SMax=NULL,C=10
   
   #SAMPLER
   for ( l in c(1:L) ){
-    LLH = -Inf #Initialize log likelihood at -Inf
+    #LLH = -Inf #Initialize log likelihood at -Inf
     X <- Xinit #for l=1 returned from input. for l>1 returned from previous loop
     
     for (c in c(1:C) ){
@@ -293,6 +293,7 @@ MDPFullPlot <- function(Data,IndexSet=NULL){ #Change to preprocess Data
   if (is.null(IndexSet)){
     IndexSet <- c(1:length(Data$Thetas))
   }
+  par(mfrow=c(1,1))
   for (j in c(1:2)){
     x <- seq(-5,5,0.01)
     #print(x[1])
@@ -316,17 +317,35 @@ MDPFullPlot <- function(Data,IndexSet=NULL){ #Change to preprocess Data
       #print(length(x))
       #print(length(Data$Thetas))
       fmean[l] <- mean(f[l,])
-      fup[l] <- quantile(f[l,],0.95)
-      flow[l] <- quantile(f[l,],0.05)
+      #fup[l] <- quantile(f[l,],0.975)
+      #flow[l] <- quantile(f[l,],0.025)
       
     }
-    print(x[which(fmean==max(fmean))])
-    print(max(fup))
+    #print(x[which(fmean==max(fmean))])
+    #print(max(fup))
     ftrue <- (1/sqrt(2*pi)*1)*exp(-0.5*1*(x-sign(x[which(fmean==max(fmean))]))^2)
-    plot(x,ftrue,col="green","l")
-    lines(x,fmean,col="blue")
-    lines(x,flow,col="red")
-    lines(x,fup, col="red")
+    if (j==1){
+      if (sign(x[which(fmean==max(fmean))])<0){
+        color = "red"
+      }
+      else{
+        color = "blue"
+      }
+    plot(x,ftrue,col=color,"l",xlab="x",ylab="f(x)",lty=2,lwd=2)
+    lines(x,fmean,col=color,lwd=2)
+    }
+    else if (j==2){
+      if (sign(x[which(fmean==max(fmean))])<0){
+        color = "red"
+      }
+      else{
+        color = "blue"
+      }
+      lines(x,ftrue,col=color,"l",xlab="x",ylab="f(x)",lty=2,lwd=2)
+      lines(x,fmean,col=color,lwd=2)
+    }
+    #lines(x,flow,col="green")
+    #lines(x,fup, col="green")
     #return(list("fmean"=fmean,"fup"=fup,"flow"=flow))
   }
 }

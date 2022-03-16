@@ -86,8 +86,11 @@ UnstoreLatent <- function(Data){
   return(Data)
 }
   
-MCMCPi1PlotsQ <- function(Data,b,s,Q=NULL,plotrow=2,plotcol=1){ #Data frame e.g. ExperimentsN500 , N1000 etc. b burn in vector. Q true
-  L <- length(Data$Outputs)
+MCMCPi1PlotsQ <- function(Data,b,s,Q=NULL,plotrow=4,plotcol=2,indexSET=NULL,both=FALSE,truth=TRUE,conf=TRUE,postmu=TRUE,basemu=TRUE){ #Data frame e.g. ExperimentsN500 , N1000 etc. b burn in vector. Q true
+  if (is.null(indexSET)){
+    indexSET = c(1:length(Data$Outputs))
+    L = length(indexSET)
+  }
   if (is.null(Q)){
     Q <- 0*Data$Outputs[[L]]$QList[[1]] #Gives 0 matrix of correct size
   }
@@ -97,7 +100,8 @@ MCMCPi1PlotsQ <- function(Data,b,s,Q=NULL,plotrow=2,plotcol=1){ #Data frame e.g.
   V <- vector("list",L)
   SD <- vector("list",L)
   par(mfrow=c(plotrow,plotcol))
-  for (E in c(1:L) ){
+  baseE=2
+  for (E in indexSET ){
     QList <- Data$Outputs[[E]]$QList
     WList <- Data$Outputs[[E]]$WList
     LLHList <- Data$Outputs[[E]]$LLHList
@@ -133,14 +137,64 @@ MCMCPi1PlotsQ <- function(Data,b,s,Q=NULL,plotrow=2,plotcol=1){ #Data frame e.g.
       }
     }
     }
+    j=1
+    if (PermutedTrueQ[2,2]==0.8){
+      j=2
+    }
+    if (E%%7==1){
+      baseE = E+1
+      
+      frame()
+      mtext(paste("Posterior draws for Q_{22} for ",Data$Inputs[[E]]$SampleSize," samples"),side = 3, line = -1.5)
+    }
+    if (E%%7==2){
+      basej = j
+    }
     #hist(EntryDraws(ExperimentsQThin[[E]],1,1),breaks=seq(0,1,0.0125),main = paste("Q11 Histogram in Experiment #",E,"of", L,"N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(1,1)")
-    hist(EntryDraws(ExperimentsQThin[[E]],1,1),breaks=seq(0,1,0.00125),main = paste("Q11 Histogram for N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(1,1)")
-    lines(c(M[[E]][1,1],M[[E]][1,1]),c(0,10000),col="blue")
-    lines(c(PermutedTrueQ[1,1],PermutedTrueQ[1,1]),c(0,10000),col="red")
-    #hist(EntryDraws(ExperimentsQThin[[E]],2,2),breaks=seq(0,1,0.0125),main = paste("Q22 Histogram in Experiment #",E,"of", L,"N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(2,2)")
-    hist(EntryDraws(ExperimentsQThin[[E]],2,2),breaks=seq(0,1,0.00125),main = paste("Q22 Histogram for N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(2,2)")
-    lines(c(M[[E]][2,2],M[[E]][2,2]),c(0,10000),col="blue")
-    lines(c(PermutedTrueQ[2,2],PermutedTrueQ[2,2]),c(0,10000),col="red")
+    #hist(EntryDraws(ExperimentsQThin[[E]],j,j),breaks=seq(0,1,0.005),main = paste("Sample size of ",Data$Inputs[[E]]$SampleSize, " with ",Data$Inputs[[E]]$BinCount," bins"),xlab = "First diagonal element")
+    hist(EntryDraws(ExperimentsQThin[[E]],j,j),breaks=seq(0,1,0.005),main = paste(Data$Inputs[[E]]$BinCount," bins"),xlab = "Q_{22} value")
+    if (postmu){ #Posterior mean for this experiment
+      lines(c(M[[E]][j,j],M[[E]][j,j]),c(0,10000),col="red")
+    }
+    if (truth){ #True Q
+      lines(c(PermutedTrueQ[j,j],PermutedTrueQ[j,j]),c(0,10000),col="red",lty=2)
+    }
+    if (conf){ #95% confidence bounds
+      #print(quantile(EntryDraws(ExperimentsQThin[[E]],1,1),0.975))
+      lines(c(quantile(EntryDraws(ExperimentsQThin[[E]],j,j),0.05),quantile(EntryDraws(ExperimentsQThin[[E]],j,j),0.05)),c(0,10000),col="blue")
+      lines(c(quantile(EntryDraws(ExperimentsQThin[[E]],j,j),0.95),quantile(EntryDraws(ExperimentsQThin[[E]],j,j),0.95)),c(0,10000),col="blue")
+    }
+    if (basemu){ #Baseline posterior mean
+      if (E>baseE){
+        print(c(M[[baseE]][basej,basej],M[[baseE]][basej,basej]))
+        lines(c(M[[baseE]][basej,basej],M[[baseE]][basej,basej]),c(0,10000),col="green")
+      }
+      
+    }
+    
+    if (both){
+      j = 3 - j
+      #hist(EntryDraws(ExperimentsQThin[[E]],1,1),breaks=seq(0,1,0.0125),main = paste("Q11 Histogram in Experiment #",E,"of", L,"N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(1,1)")
+      hist(EntryDraws(ExperimentsQThin[[E]],j,j),breaks=seq(0,1,0.005),main = paste("Sample size of ",Data$Inputs[[E]]$SampleSize, " with ",Data$Inputs[[E]]$BinCount," bins"),xlab = "Second diagonal element")
+      if (postmu){ #Posterior mean for this experiment
+        lines(c(M[[E]][j,j],M[[E]][j,j]),c(0,10000),col="blue")
+      }
+      if (truth){ #True Q
+        lines(c(PermutedTrueQ[j,j],PermutedTrueQ[j,j]),c(0,10000),col="red")
+      }
+      if (conf){ #95% confidence bounds
+        #print(quantile(EntryDraws(ExperimentsQThin[[E]],1,1),0.975))
+        lines(c(quantile(EntryDraws(ExperimentsQThin[[E]],j,j),0.025),quantile(EntryDraws(ExperimentsQThin[[E]],j,j),0.025)),c(0,10000),col="aquamarine")
+        lines(c(quantile(EntryDraws(ExperimentsQThin[[E]],j,j),0.975),quantile(EntryDraws(ExperimentsQThin[[E]],j,j),0.975)),c(0,10000),col="aquamarine")
+      }
+      if (basemu){ #Baseline posterior mean
+        if (E>baseE){
+          print(c(M[[baseE]][3-basej,3-basej],M[[baseE]][3-basej,3-basej]))
+          lines(c(M[[baseE]][3-basej,3-basej],M[[baseE]][3-basej,3-basej]),c(0,10000),col="green")
+        }
+        
+      }
+    }
   }
   return(list("QThin"=ExperimentsQThin,"PostMean"=M,"PostVariance"=V, "PostSD"=SD))
 }
@@ -209,11 +263,11 @@ MCMCPi1PlotsQW <- function(Data,b,s,Q=NULL){ #Data frame e.g. ExperimentsN500 , 
       }
     }
     #hist(EntryDraws(ExperimentsQThin[[E]],1,1),breaks=seq(0,1,0.0125),main = paste("Q11 Histogram in Experiment #",E,"of", L,"N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(1,1)")
-    hist(EntryDraws(ExperimentsQThin[[E]],1,1),breaks=seq(0,1,0.0125),main = paste("Q11 Histogram for N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(1,1)")
+    hist(EntryDraws(ExperimentsQThin[[E]],1,1),breaks=seq(0,1,0.0125),main = paste("Sample size of ",Data$Inputs[[E]]$SampleSize, " with ",Data$Inputs[[E]]$BinCount," bins"),xlab = "First diagonal element")
     lines(c(MQ[[E]][1,1],MQ[[E]][1,1]),c(0,10000),col="blue")
     lines(c(PermutedTrueQ[1,1],PermutedTrueQ[1,1]),c(0,10000),col="red")
     #hist(EntryDraws(ExperimentsQThin[[E]],2,2),breaks=seq(0,1,0.0125),main = paste("Q22 Histogram in Experiment #",E,"of", L,"N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(2,2)")
-    hist(EntryDraws(ExperimentsQThin[[E]],2,2),breaks=seq(0,1,0.0125),main = paste("Q22 Histogram for N=",Data$Inputs[[E]]$SampleSize, "Bins=",Data$Inputs[[E]]$BinCount),xlab = "Q(2,2)")
+    hist(EntryDraws(ExperimentsQThin[[E]],2,2),breaks=seq(0,1,0.0125),xlab = "Second diagonal element")
     lines(c(MQ[[E]][2,2],MQ[[E]][2,2]),c(0,10000),col="blue")
     lines(c(PermutedTrueQ[2,2],PermutedTrueQ[2,2]),c(0,10000),col="red")
     Link <- Data$Inputs[[E]]$Link #Retrieves the link function
