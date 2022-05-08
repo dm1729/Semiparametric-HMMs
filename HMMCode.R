@@ -258,7 +258,7 @@ LabelSwap <- function(QList,WList,Y,s,A=NULL,B=NULL){#Thins by factor s, swaps l
     for (k in c(1:R)){ #Now we set entry of the list of outputs according to this perm
       WThin[[i]][k,] <- WList[[s*(i-1)+1]][Perms[PermIndex,k],] #Permute each vector of W[[i]]
       for (l in c(1:R)){
-        QThin[[i]][k,l] <- QList[[s*(i-1)+1]][ Perms[PermIndex,k] , Perms[PermIndex,l] ] #Permute Q[[i]] accoridng to perm j
+        QThin[[i]][k,l] <- QList[[s*(i-1)+1]][ Perms[PermIndex,k] , Perms[PermIndex,l] ] #Permute Q[[i]] according to perm j
       }
     } #End loop over matrix entries
   } #End loop over S, so now all elements of QThin are entered with appropriate permutation
